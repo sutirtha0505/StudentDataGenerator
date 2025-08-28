@@ -9,19 +9,30 @@ public class Main {
     private static final String DB_USER = "postgres";
     private static final String DB_PASSWORD = "Sutirtha_05@Postgress"; // Change this to your PostgreSQL password
     
-    // Thread pool for database operations
-    private static ExecutorService executorService = Executors.newFixedThreadPool(10);
+    // Thread pool for database operations - single thread for large datasets
+    private static ExecutorService executorService = Executors.newFixedThreadPool(1);
     private static AtomicInteger processedStudents = new AtomicInteger(0);
     private static AtomicInteger processedSchools = new AtomicInteger(0);
+    private static volatile boolean processingComplete = false;
     
-    // Method to establish database connection
+    // Method to establish database connection with timeout
     private static Connection getConnection() throws SQLException {
         try {
             Class.forName("org.postgresql.Driver");
         } catch (ClassNotFoundException e) {
             throw new SQLException("PostgreSQL JDBC Driver not found", e);
         }
-        return DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+        
+        // Set connection timeout properties for large datasets
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("user", DB_USER);
+        props.setProperty("password", DB_PASSWORD);
+        props.setProperty("loginTimeout", "10");
+        props.setProperty("socketTimeout", "30");
+        props.setProperty("connectTimeout", "10");
+        props.setProperty("tcpKeepAlive", "true");
+        
+        return DriverManager.getConnection(DB_URL, props);
     }
     
     // Method to create database tables
@@ -113,7 +124,7 @@ public class Main {
         }
     }
     
-    // Method to insert student data
+    // Method to insert student data with retry logic
     private static void insertStudent(StudentData student) {
         String tableName = getStudentTableName(student.schoolName);
         String sql = String.format("""
@@ -124,38 +135,57 @@ public class Main {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, tableName);
         
-        try (Connection conn = getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            
-            pstmt.setObject(1, java.util.UUID.fromString(student.studentUUID));
-            pstmt.setString(2, student.fullName);
-            pstmt.setString(3, student.guardianName);
-            pstmt.setString(4, student.gender);
-            pstmt.setString(5, student.bloodGroup);
-            pstmt.setDate(6, parseDate(student.birthDate));
-            pstmt.setString(7, student.aadharNumber);
-            pstmt.setString(8, student.className);
-            pstmt.setString(9, student.section);
-            pstmt.setInt(10, student.rollNo);
-            pstmt.setString(11, student.religion);
-            pstmt.setString(12, student.parentOccupation);
-            pstmt.setBoolean(13, student.concessionNeeded.equals("Yes"));
-            pstmt.setString(14, student.concessionType.equals("N/A") ? null : student.concessionType);
-            pstmt.setString(15, student.medicalCondition.equals("None") ? null : student.medicalCondition);
-            pstmt.setString(16, student.studentPhone);
-            pstmt.setString(17, student.guardianPhone);
-            pstmt.setString(18, student.imageUrl);
-            pstmt.setString(19, student.stream); // Added stream parameter
-            
-            pstmt.executeUpdate();
-            
-            int processed = processedStudents.incrementAndGet();
-            if (processed % 100 == 0) {
-                System.out.println("Students processed: " + processed);
+        int maxRetries = 3;
+        int retryCount = 0;
+        
+        while (retryCount < maxRetries) {
+            try (Connection conn = getConnection();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                
+                pstmt.setObject(1, java.util.UUID.fromString(student.studentUUID));
+                pstmt.setString(2, student.fullName);
+                pstmt.setString(3, student.guardianName);
+                pstmt.setString(4, student.gender);
+                pstmt.setString(5, student.bloodGroup);
+                pstmt.setDate(6, parseDate(student.birthDate));
+                pstmt.setString(7, student.aadharNumber);
+                pstmt.setString(8, student.className);
+                pstmt.setString(9, student.section);
+                pstmt.setInt(10, student.rollNo);
+                pstmt.setString(11, student.religion);
+                pstmt.setString(12, student.parentOccupation);
+                pstmt.setBoolean(13, student.concessionNeeded.equals("Yes"));
+                pstmt.setString(14, student.concessionType.equals("N/A") ? null : student.concessionType);
+                pstmt.setString(15, student.medicalCondition.equals("None") ? null : student.medicalCondition);
+                pstmt.setString(16, student.studentPhone);
+                pstmt.setString(17, student.guardianPhone);
+                pstmt.setString(18, student.imageUrl);
+                pstmt.setString(19, student.stream);
+                
+                pstmt.executeUpdate();
+                
+                int processed = processedStudents.incrementAndGet();
+                // Show progress every 1000 students for large datasets, 100 for smaller ones
+                int progressInterval = processed > 1000000 ? 1000 : 100;
+                if (processed % progressInterval == 0) {
+                    System.out.println("Students processed: " + processed);
+                }
+                return; // Success, exit retry loop
+                
+            } catch (SQLException e) {
+                retryCount++;
+                if (retryCount >= maxRetries) {
+                    System.err.println("Failed to insert student " + student.fullName + " after " + maxRetries + " attempts: " + e.getMessage());
+                } else {
+                    // Wait before retry
+                    try {
+                        Thread.sleep(1000 * retryCount); // Exponential backoff
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
             }
-            
-        } catch (SQLException e) {
-            System.err.println("Error inserting student " + student.fullName + ": " + e.getMessage());
         }
     }
     
@@ -231,45 +261,174 @@ public class Main {
     
     // Method to generate unique school names
     private static String generateUniqueSchoolName(java.util.Set<String> usedSchoolNames) {
+        // Expanded prefixes (200+ options)
         String[] schoolPrefixes = {
             "St.", "Holy", "Sacred", "Divine", "Blessed", "Mount", "Little", "Bright", "Golden", "Silver",
             "Green", "Blue", "Red", "New", "Modern", "Progressive", "Advanced", "Premier", "Elite", "Excellence",
             "Victory", "Success", "Wisdom", "Knowledge", "Learning", "Future", "Hope", "Dream", "Star", "Sun",
-            "Moon", "Rainbow", "Crystal", "Diamond", "Pearl", "Emerald", "Ruby", "Sapphire", "Lotus", "Rose"
+            "Moon", "Rainbow", "Crystal", "Diamond", "Pearl", "Emerald", "Ruby", "Sapphire", "Lotus", "Rose",
+            "Noble", "Royal", "Grand", "Great", "Glorious", "Magnificent", "Majestic", "Supreme", "Ultimate", "Perfect",
+            "Ideal", "Prime", "Pure", "True", "Real", "Genuine", "Authentic", "Original", "Classic", "Eternal",
+            "Infinite", "Universal", "Global", "International", "National", "Regional", "Central", "Metropolitan", "Urban", "Rural",
+            "Eastern", "Western", "Northern", "Southern", "Coastal", "Highland", "Valley", "Mountain", "River", "Forest",
+            "Garden", "Park", "Grove", "Field", "Meadow", "Prairie", "Desert", "Ocean", "Lake", "Stream",
+            "Dawn", "Dusk", "Morning", "Evening", "Noon", "Midnight", "Spring", "Summer", "Autumn", "Winter",
+            "Pioneer", "Leader", "Champion", "Winner", "Master", "Expert", "Skilled", "Talented", "Gifted", "Brilliant",
+            "Bright", "Shining", "Glowing", "Radiant", "Luminous", "Sparkling", "Dazzling", "Gleaming", "Twinkling", "Flickering",
+            "Ancient", "Historic", "Traditional", "Cultural", "Heritage", "Legacy", "Memorial", "Tribute", "Honor", "Glory",
+            "Peace", "Harmony", "Unity", "Brotherhood", "Fellowship", "Community", "Society", "Foundation", "Trust", "Mission",
+            "Vision", "Innovation", "Creation", "Discovery", "Exploration", "Adventure", "Journey", "Quest", "Path", "Way",
+            "Light", "Beacon", "Guide", "Mentor", "Teacher", "Educator", "Scholar", "Academic", "Intellectual", "Thoughtful",
+            "Creative", "Artistic", "Musical", "Literary", "Poetic", "Dramatic", "Scientific", "Technical", "Digital", "Cyber",
+            "Cosmic", "Stellar", "Galactic", "Universal", "Planetary", "Solar", "Lunar", "Celestial", "Heavenly", "Angelic",
+            "Alpha", "Beta", "Gamma", "Delta", "Omega", "Prime", "First", "Second", "Third", "Final",
+            "Neo", "Ultra", "Super", "Mega", "Macro", "Micro", "Mini", "Maxi", "Multi", "Poly"
         };
         
+        // Expanded middle names (300+ options)
         String[] schoolMiddles = {
             "Angels", "Mary", "Xavier", "Francis", "Joseph", "Michael", "Gabriel", "Paul", "Peter", "John",
             "Thomas", "Anthony", "Stephen", "Lawrence", "Vincent", "Augustine", "Benedict", "Dominic", "Carmel",
             "Teresa", "Agnes", "Catherine", "Margaret", "Elizabeth", "Anne", "Grace", "Faith", "Hope", "Joy",
             "Peace", "Light", "Dawn", "Morning", "Evening", "Spring", "Summer", "Autumn", "Winter", "Valley",
-            "Hills", "Heights", "Gardens", "Park", "Grove", "Woods", "Forest", "River", "Lake", "Ocean"
+            "Hills", "Heights", "Gardens", "Park", "Grove", "Woods", "Forest", "River", "Lake", "Ocean",
+            "Matthew", "Mark", "Luke", "James", "Andrew", "Philip", "Bartholomew", "Timothy", "Christopher", "Nicholas",
+            "David", "Daniel", "Samuel", "Nathan", "Joshua", "Caleb", "Benjamin", "Isaac", "Jacob", "Aaron",
+            "Moses", "Abraham", "Noah", "Adam", "Solomon", "Elijah", "Isaiah", "Jeremiah", "Ezekiel", "Hosea",
+            "Joel", "Amos", "Obadiah", "Jonah", "Micah", "Nahum", "Habakkuk", "Zephaniah", "Haggai", "Zechariah",
+            "Malachi", "Raphael", "Uriel", "Seraphim", "Cherubim", "Throne", "Dominion", "Virtue", "Power", "Principality",
+            "Sarah", "Rebecca", "Rachel", "Leah", "Ruth", "Esther", "Judith", "Deborah", "Miriam", "Hannah",
+            "Abigail", "Bathsheba", "Tamar", "Gomer", "Hosanna", "Alleluia", "Gloria", "Magnificat", "Sanctus", "Benedictus",
+            "Agnus", "Dei", "Kyrie", "Eleison", "Christe", "Pax", "Vobiscum", "Dominus", "Tecum", "Spiritus",
+            "Krishnan", "Govind", "Madhav", "Keshav", "Narayan", "Vishnu", "Shiva", "Brahma", "Indra", "Varuna",
+            "Agni", "Vayu", "Surya", "Chandra", "Prithvi", "Akash", "Jal", "Tej", "Vaayu", "Bhumi",
+            "Ganga", "Yamuna", "Saraswati", "Narmada", "Kaveri", "Godavari", "Krishna", "Tapti", "Mahanadi", "Brahmaputra",
+            "Himalaya", "Vindhya", "Sahyadri", "Aravalli", "Nilgiri", "Satpura", "Kanchenjunga", "Everest", "Annapurna", "Dhaulagiri",
+            "Gandhi", "Nehru", "Patel", "Bose", "Tilak", "Gokhale", "Rao", "Tagore", "Vivekananda", "Aurobindo",
+            "Ramakrishna", "Dayananda", "Kabir", "Tulsidas", "Surdas", "Mirabai", "Rahim", "Raskhan", "Bihari", "Bharatendu",
+            "Premchand", "Prasad", "Pant", "Nirala", "Mahadevi", "Ajneya", "Dinkar", "Bachchan", "Shukla", "Gupta",
+            "Sharma", "Verma", "Agarwal", "Bansal", "Mittal", "Jain", "Shah", "Mehta", "Chandra", "Kumar",
+            "Devi", "Mata", "Bai", "Kumari", "Sundari", "Lakshmi", "Durga", "Kali", "Parvati", "Radha",
+            "Sita", "Gita", "Yamuna", "Ganga", "Saraswati", "Gayatri", "Savitri", "Sandhya", "Usha", "Asha",
+            "Nisha", "Disha", "Risha", "Priya", "Maya", "Lila", "Kala", "Nila", "Hira", "Sona",
+            "Chandi", "Moti", "Panna", "Manik", "Ratna", "Mukta", "Swarna", "Rajat", "Tamra", "Loha",
+            "Veda", "Purana", "Upanishad", "Gita", "Ramayana", "Mahabharata", "Bhagavata", "Devi", "Vishnu", "Shiva",
+            "Shakti", "Shanti", "Mukti", "Bhakti", "Prema", "Karuna", "Daya", "Kshama", "Satya", "Dharma",
+            "Artha", "Kama", "Moksha", "Yoga", "Meditation", "Pranayama", "Asana", "Mudra", "Mantra", "Yantra",
+            "Mandala", "Chakra", "Kundalini", "Samadhi", "Nirvana", "Enlightenment", "Awakening", "Consciousness", "Awareness", "Mindfulness"
         };
         
+        // Expanded suffixes (100+ options)
         String[] schoolSuffixes = {
             "Public School", "Higher Secondary School", "High School", "Senior Secondary School", 
             "English Medium School", "Model School", "International School", "Academy", "Institute",
             "Educational Institute", "Learning Center", "Study Center", "Knowledge Hub", "Vidyalaya",
             "Vidya Mandir", "Vidya Niketan", "Vidya Bhawan", "Vidya Kendra", "Shiksha Niketan",
-            "Bal Vidyalaya", "Convent School", "Mission School", "Memorial School", "Foundation School"
+            "Bal Vidyalaya", "Convent School", "Mission School", "Memorial School", "Foundation School",
+            "Central School", "Kendriya Vidyalaya", "Jawahar Navodaya Vidyalaya", "Government School", "Municipal School",
+            "Corporation School", "Zilla Panchayat School", "Block School", "Gram Panchayat School", "Aided School",
+            "Unaided School", "Minority School", "Linguistic Minority School", "Religious Minority School", "Special School",
+            "Inclusive School", "Integrated School", "Composite School", "Senior School", "Junior School",
+            "Primary School", "Elementary School", "Middle School", "Secondary School", "Preparatory School",
+            "Kindergarten", "Pre-School", "Nursery School", "Play School", "Day Care Center",
+            "Boarding School", "Residential School", "Hostel School", "Day School", "Co-Educational School",
+            "Boys School", "Girls School", "Women's College", "Men's College", "Unisex Institute",
+            "Technical Institute", "Polytechnic", "Engineering College", "Medical College", "Dental College",
+            "Pharmacy College", "Nursing College", "Teacher Training College", "B.Ed College", "D.Ed College",
+            "Arts College", "Science College", "Commerce College", "Management Institute", "Business School",
+            "Law College", "Agricultural College", "Veterinary College", "Forestry College", "Fisheries College",
+            "Technology Institute", "Computer Institute", "IT Academy", "Software Academy", "Hardware Institute",
+            "Electronics Institute", "Telecommunications Academy", "Robotics Academy", "AI Institute", "Data Science Academy",
+            "Research Institute", "Innovation Center", "Incubation Center", "Startup Academy", "Entrepreneurship Center",
+            "Leadership Academy", "Excellence Center", "Quality Institute", "Standards Academy", "Certification Center",
+            "Training Academy", "Skill Development Center", "Vocational Institute", "Professional Academy", "Career Center",
+            "Finishing School", "Personality Development Center", "Soft Skills Academy", "Communication Center", "Language Institute"
+        };
+        
+        // Additional components for more variation
+        String[] numericSuffixes = {
+            "1", "2", "3", "4", "5", "I", "II", "III", "IV", "V",
+            "Alpha", "Beta", "Gamma", "Delta", "Omega", "Prime", "Plus", "Pro", "Max", "Elite"
+        };
+        
+        String[] locationPrefixes = {
+            "East", "West", "North", "South", "Central", "Greater", "New", "Old", "Upper", "Lower"
         };
         
         String schoolName;
+        int attempts = 0;
+        final int MAX_ATTEMPTS = 1000; // Prevent infinite loops
+        
         do {
-            String prefix = schoolPrefixes[(int) (Math.random() * schoolPrefixes.length)];
-            String middle = schoolMiddles[(int) (Math.random() * schoolMiddles.length)];
-            String suffix = schoolSuffixes[(int) (Math.random() * schoolSuffixes.length)];
-            
-            // Sometimes skip the middle part for variation
-            if (Math.random() < 0.3) {
-                schoolName = prefix + " " + suffix;
-            } else {
-                schoolName = prefix + " " + middle + " " + suffix;
+            attempts++;
+            if (attempts > MAX_ATTEMPTS) {
+                // If we can't find a unique name after many attempts, add a random number
+                schoolName = generateBasicSchoolName(schoolPrefixes, schoolMiddles, schoolSuffixes) + " " + 
+                           (1000000 + (int)(Math.random() * 9000000)); // 7-digit random number
+                break;
             }
+            
+            double pattern = Math.random();
+            
+            if (pattern < 0.15) {
+                // Pattern 1: Location + Prefix + Middle + Suffix (15%)
+                String location = locationPrefixes[(int) (Math.random() * locationPrefixes.length)];
+                String prefix = schoolPrefixes[(int) (Math.random() * schoolPrefixes.length)];
+                String middle = schoolMiddles[(int) (Math.random() * schoolMiddles.length)];
+                String suffix = schoolSuffixes[(int) (Math.random() * schoolSuffixes.length)];
+                schoolName = location + " " + prefix + " " + middle + " " + suffix;
+            } else if (pattern < 0.30) {
+                // Pattern 2: Prefix + Middle + Suffix + Numeric (15%)
+                String prefix = schoolPrefixes[(int) (Math.random() * schoolPrefixes.length)];
+                String middle = schoolMiddles[(int) (Math.random() * schoolMiddles.length)];
+                String suffix = schoolSuffixes[(int) (Math.random() * schoolSuffixes.length)];
+                String numeric = numericSuffixes[(int) (Math.random() * numericSuffixes.length)];
+                schoolName = prefix + " " + middle + " " + suffix + " " + numeric;
+            } else if (pattern < 0.45) {
+                // Pattern 3: Two Middles + Suffix (15%)
+                String prefix = schoolPrefixes[(int) (Math.random() * schoolPrefixes.length)];
+                String middle1 = schoolMiddles[(int) (Math.random() * schoolMiddles.length)];
+                String middle2 = schoolMiddles[(int) (Math.random() * schoolMiddles.length)];
+                String suffix = schoolSuffixes[(int) (Math.random() * schoolSuffixes.length)];
+                if (!middle1.equals(middle2)) {
+                    schoolName = prefix + " " + middle1 + " " + middle2 + " " + suffix;
+                } else {
+                    schoolName = prefix + " " + middle1 + " " + suffix;
+                }
+            } else if (pattern < 0.55) {
+                // Pattern 4: Prefix + Suffix only (10%)
+                String prefix = schoolPrefixes[(int) (Math.random() * schoolPrefixes.length)];
+                String suffix = schoolSuffixes[(int) (Math.random() * schoolSuffixes.length)];
+                schoolName = prefix + " " + suffix;
+            } else if (pattern < 0.70) {
+                // Pattern 5: Location + Prefix + Suffix (15%)
+                String location = locationPrefixes[(int) (Math.random() * locationPrefixes.length)];
+                String prefix = schoolPrefixes[(int) (Math.random() * schoolPrefixes.length)];
+                String suffix = schoolSuffixes[(int) (Math.random() * schoolSuffixes.length)];
+                schoolName = location + " " + prefix + " " + suffix;
+            } else {
+                // Pattern 6: Traditional format (30%)
+                schoolName = generateBasicSchoolName(schoolPrefixes, schoolMiddles, schoolSuffixes);
+            }
+            
         } while (usedSchoolNames.contains(schoolName));
         
         usedSchoolNames.add(schoolName);
         return schoolName;
+    }
+    
+    // Helper method for basic school name generation
+    private static String generateBasicSchoolName(String[] prefixes, String[] middles, String[] suffixes) {
+        String prefix = prefixes[(int) (Math.random() * prefixes.length)];
+        String middle = middles[(int) (Math.random() * middles.length)];
+        String suffix = suffixes[(int) (Math.random() * suffixes.length)];
+        
+        // Sometimes skip the middle part for variation
+        if (Math.random() < 0.3) {
+            return prefix + " " + suffix;
+        } else {
+            return prefix + " " + middle + " " + suffix;
+        }
     }
     
     // Method to generate date of birth based on class and current year
@@ -429,8 +588,8 @@ public class Main {
         System.out.print("Enter number of students per section: ");
         int studentsPerSection = scanner.nextInt();
         
-        System.out.print("Enter number of schools to generate (max 10000): ");
-        int numSchools = Math.min(scanner.nextInt(), 10000);
+        System.out.print("Enter number of schools to generate: ");
+        int numSchools = scanner.nextInt();
         
         // Calculate total students
         int totalStudentsPerSchool = numClasses * numSections * studentsPerSection;
@@ -723,22 +882,52 @@ public class Main {
         
         System.out.println("=== GENERATING AND SAVING STUDENT DATA ===");
         System.out.println("Total students to generate: " + totalStudents);
-        System.out.println("Progress will be shown every 100 students...\n");
         
-        // Start progress monitoring
-        executorService.submit(() -> {
-            while (processedStudents.get() < totalStudents) {
-                try {
-                    Thread.sleep(2000); // Update every 2 seconds
-                    int current = processedStudents.get();
-                    double percentage = (current * 100.0) / totalStudents;
-                    System.out.printf("Progress: %d/%d students (%.1f%%) processed\n", 
-                        current, totalStudents, percentage);
-                } catch (InterruptedException e) {
-                    break;
+        // For very large datasets (>1M students), use synchronous processing
+        boolean useSyncProcessing = totalStudents > 1000000;
+        if (useSyncProcessing) {
+            System.out.println("Large dataset detected (>1M students). Using synchronous processing for stability.");
+            System.out.println("Progress will be shown every 1000 students...\n");
+        } else {
+            System.out.println("Progress will be shown every 100 students...\n");
+        }
+        
+        // Start progress monitoring with proper termination (only for async processing)
+        if (!useSyncProcessing) {
+            executorService.submit(() -> {
+                int lastReported = 0;
+                int stuckCounter = 0;
+                while (processedStudents.get() < totalStudents && !processingComplete) {
+                    try {
+                        Thread.sleep(3000); // Update every 3 seconds
+                        int current = processedStudents.get();
+                        
+                        // Check if processing is stuck
+                        if (current == lastReported) {
+                            stuckCounter++;
+                            if (stuckCounter > 10) { // If stuck for 30 seconds
+                                System.out.println("WARNING: Processing appears stuck at " + current + " students");
+                                System.out.println("This may be due to database connection issues with large datasets");
+                                break;
+                            }
+                        } else {
+                            stuckCounter = 0;
+                            lastReported = current;
+                        }
+                        
+                        double percentage = (current * 100.0) / totalStudents;
+                        System.out.printf("Progress: %d/%d students (%.1f%%) processed\n", 
+                            current, totalStudents, percentage);
+                            
+                    } catch (InterruptedException e) {
+                        break;
+                    }
                 }
-            }
-        });
+                System.out.println("Progress monitoring stopped.");
+            });
+        } else {
+            System.out.println("Synchronous processing mode - progress will be shown with student insertions.");
+        }
 
         int currentSchoolIndex = 0;
         int currentClass = 1;
@@ -814,8 +1003,31 @@ public class Main {
                 studentPhone, guardianPhone, imageUrl, studentStream
             );
             
-            // Insert student data asynchronously
-            executorService.submit(() -> insertStudent(student));
+            // Choose processing method based on dataset size
+            if (useSyncProcessing) {
+                // For large datasets, use synchronous processing to avoid database overload
+                insertStudent(student);
+            } else {
+                // For smaller datasets, use asynchronous processing
+                executorService.submit(() -> insertStudent(student));
+            }
+            
+            // Add delay for large datasets to prevent database overload
+            if (useSyncProcessing && (studentIndex + 1) % 100 == 0) {
+                try {
+                    Thread.sleep(10); // Small pause every 100 students for large datasets
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            } else if (!useSyncProcessing && (studentIndex + 1) % 1000 == 0) {
+                try {
+                    Thread.sleep(100); // Longer pause every 1000 students for async processing
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
             
             // Update roll number, section, class, and school
             currentRollNo++;
@@ -836,14 +1048,29 @@ public class Main {
             }
         }
 
-        // Wait for all tasks to complete
+        // Signal processing completion and wait for all tasks
+        processingComplete = true;
         executorService.shutdown();
+        
+        System.out.println("\n=== WAITING FOR DATABASE OPERATIONS TO COMPLETE ===");
         try {
-            if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+            // Wait longer for large datasets
+            long timeoutMinutes = Math.max(5, totalStudents / 10000); // 1 minute per 10k students, minimum 5 minutes
+            System.out.println("Timeout set to " + timeoutMinutes + " minutes for " + totalStudents + " students");
+            
+            if (!executorService.awaitTermination(timeoutMinutes, TimeUnit.MINUTES)) {
+                System.out.println("Timeout reached. Forcing shutdown...");
                 executorService.shutdownNow();
+                
+                // Wait a bit more for forced shutdown
+                if (!executorService.awaitTermination(30, TimeUnit.SECONDS)) {
+                    System.out.println("Some database operations may not have completed");
+                }
             }
         } catch (InterruptedException e) {
+            System.out.println("Interrupted. Forcing shutdown...");
             executorService.shutdownNow();
+            Thread.currentThread().interrupt();
         }
         
         System.out.println("\n=== GENERATION COMPLETE ===");
