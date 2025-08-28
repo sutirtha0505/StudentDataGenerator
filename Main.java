@@ -71,6 +71,7 @@ public class Main {
                     student_phone VARCHAR(15) NOT NULL UNIQUE,
                     guardian_phone VARCHAR(15) NOT NULL UNIQUE,
                     image_url TEXT NOT NULL,
+                    stream VARCHAR(20), -- Added stream column for classes 11 and 12
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """, tableName);
@@ -119,8 +120,8 @@ public class Main {
             INSERT INTO %s (student_uuid, full_name, guardian_name, gender, blood_group, 
             birth_date, aadhar_card, class_name, section, roll_no, religion, 
             parent_occupation, concession_needed, concession_type, medical_condition, 
-            student_phone, guardian_phone, image_url) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            student_phone, guardian_phone, image_url, stream) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, tableName);
         
         try (Connection conn = getConnection();
@@ -144,6 +145,7 @@ public class Main {
             pstmt.setString(16, student.studentPhone);
             pstmt.setString(17, student.guardianPhone);
             pstmt.setString(18, student.imageUrl);
+            pstmt.setString(19, student.stream); // Added stream parameter
             
             pstmt.executeUpdate();
             
@@ -175,14 +177,15 @@ public class Main {
         String studentUUID, fullName, guardianName, gender, bloodGroup, birthDate;
         String aadharNumber, className, section, religion, parentOccupation;
         String concessionNeeded, concessionType, medicalCondition, studentPhone, guardianPhone;
-        String schoolName, imageUrl;
+        String schoolName, imageUrl, stream; // Added stream field
         int rollNo;
         
         StudentData(String studentUUID, String fullName, String guardianName, String gender, 
                    String bloodGroup, String birthDate, String aadharNumber, String className, 
                    String section, int rollNo, String schoolName, String religion, 
                    String parentOccupation, String concessionNeeded, String concessionType, 
-                   String medicalCondition, String studentPhone, String guardianPhone, String imageUrl) {
+                   String medicalCondition, String studentPhone, String guardianPhone, String imageUrl,
+                   String stream) { // Added stream parameter
             this.studentUUID = studentUUID;
             this.fullName = fullName;
             this.guardianName = guardianName;
@@ -202,6 +205,7 @@ public class Main {
             this.studentPhone = studentPhone;
             this.guardianPhone = guardianPhone;
             this.imageUrl = imageUrl;
+            this.stream = stream; // Added stream assignment
         }
     }
     
@@ -782,7 +786,21 @@ public class Main {
             // Assign school, class, section, and roll number
             String schoolName = schoolNames.get(currentSchoolIndex);
             String classStr = "Class " + currentClass;
-            String sectionStr = String.valueOf(currentSection);
+            
+            // Handle stream-based section assignment for classes 11 and 12
+            String sectionStr;
+            String studentStream;
+            
+            if (currentClass == 11 || currentClass == 12) {
+                // For classes 11 and 12, assign stream-based sections
+                StreamSectionAssignment assignment = getStreamBasedSection(currentSection, numSections, currentRollNo, studentsPerSection);
+                sectionStr = String.valueOf(assignment.section);
+                studentStream = assignment.stream;
+            } else {
+                // For other classes, use regular section assignment
+                sectionStr = String.valueOf(currentSection);
+                studentStream = null; // No stream for classes 1-10
+            }
             
             // Generate MinIO URL for student image
             String schoolNameEncoded = schoolName.replace(" ", "%20").replace(".", "").replace("'", "");
@@ -793,7 +811,7 @@ public class Main {
                 studentUUID, fullName, guardianName, gender, bloodGroup, dateOfBirth,
                 aadharNumber, classStr, sectionStr, currentRollNo, schoolName, religion,
                 parentOccupation, concessionNeeded, concessionType, medicalCondition,
-                studentPhone, guardianPhone, imageUrl
+                studentPhone, guardianPhone, imageUrl, studentStream
             );
             
             // Insert student data asynchronously
@@ -849,6 +867,979 @@ public class Main {
         System.out.println("\n-- Count students by gender in a school:");
         System.out.println("SELECT gender, COUNT(*) FROM " + sampleTableName + " GROUP BY gender;");
         
+        // Generate Academic Results after student data generation is complete
+        System.out.println("\n=== GENERATING ACADEMIC RESULTS ===");
+        generateAcademicResults(scanner, schoolNames);
+        
         scanner.close();
+    }
+    
+    // Method to generate academic results for students
+    private static void generateAcademicResults(java.util.Scanner scanner, java.util.List<String> schoolNames) {
+        System.out.println("Now generating academic results for all students...\n");
+        
+        // Get user input for academic structure
+        System.out.print("Enter the classes for which you want to generate results (e.g., '1-3' or '6-8'): ");
+        String classRange = scanner.next();
+        
+        // Parse class range
+        java.util.List<Integer> classes = parseClassRange(classRange);
+        System.out.println("Selected classes: " + classes);
+        
+        System.out.print("Enter number of terms per year: ");
+        int numTerms = scanner.nextInt();
+        
+        // Handle different subject combinations based on classes
+        java.util.Map<Integer, java.util.List<SubjectInfo>> classSubjects = new java.util.HashMap<>();
+        
+        for (int currentClass : classes) {
+            if (currentClass <= 9) {
+                // For classes 1-9, use automated subject configuration
+                if (!classSubjects.containsKey(currentClass)) {
+                    System.out.println("\n=== AUTO-CONFIGURING SUBJECTS FOR CLASS " + currentClass + " ===");
+                    java.util.List<SubjectInfo> subjects = getAutomatedSubjects(currentClass);
+                    classSubjects.put(currentClass, subjects);
+                    
+                    // Display configured subjects
+                    System.out.println("Subjects configured for Class " + currentClass + ":");
+                    for (SubjectInfo subject : subjects) {
+                        System.out.println("  - " + subject.name + " (Full Marks: " + subject.fullMarks + ")");
+                    }
+                }
+            } else if (currentClass == 10) {
+                // Class 10 - Fixed WBBSE subjects
+                if (!classSubjects.containsKey(10)) {
+                    System.out.println("\n=== CLASS 10 (WBBSE MADHYAMIK) - FIXED SUBJECTS ===");
+                    java.util.List<SubjectInfo> class10Subjects = getClass10Subjects(scanner);
+                    classSubjects.put(10, class10Subjects);
+                }
+            } else if (currentClass == 11 || currentClass == 12) {
+                // Classes 11-12 - Stream-based subjects
+                if (!classSubjects.containsKey(11)) {
+                    System.out.println("\n=== CLASSES 11-12 (WBCHSE HIGHER SECONDARY) - STREAM-BASED SUBJECTS ===");
+                    java.util.List<SubjectInfo> higherSecSubjects = getHigherSecondarySubjects(scanner);
+                    classSubjects.put(11, higherSecSubjects);
+                    classSubjects.put(12, higherSecSubjects); // Same subjects for both classes
+                }
+            }
+        }
+        
+        int currentYear = 2025;
+        
+        // Process each school
+        for (String schoolName : schoolNames) {
+            System.out.println("\nProcessing academic results for: " + schoolName);
+            
+            // For each class in the selected range
+            for (int currentClass : classes) {
+                java.util.List<SubjectInfo> subjects = classSubjects.get(currentClass);
+                
+                // Generate marksheets for current and previous years based on student's progression
+                for (int sessionYear = currentYear - currentClass + 1; sessionYear <= currentYear; sessionYear++) {
+                    int studentClassInSession = currentClass - (currentYear - sessionYear);
+                    if (studentClassInSession >= 1) {
+                        // First create regular academic table (for all classes)
+                        createAcademicTable(schoolName, studentClassInSession, sessionYear, subjects, numTerms, false);
+                        generateAcademicData(schoolName, studentClassInSession, sessionYear, subjects, numTerms, false);
+                        
+                        // For classes 10 and 12, also create board exam tables
+                        if (studentClassInSession == 10 || studentClassInSession == 12) {
+                            System.out.println("Creating board exam table for Class " + studentClassInSession);
+                            createBoardExamTable(schoolName, studentClassInSession, sessionYear, subjects, numTerms);
+                            generateBoardExamData(schoolName, studentClassInSession, sessionYear, subjects, numTerms);
+                        }
+                    }
+                }
+            }
+        }
+        
+        System.out.println("\n=== ACADEMIC RESULTS GENERATION COMPLETE ===");
+        System.out.println("Academic tables created with format: {school}_class_{class}_{year}");
+    }
+    
+    // Method to get Class 10 fixed subjects
+    private static java.util.List<SubjectInfo> getClass10Subjects(java.util.Scanner scanner) {
+        java.util.List<SubjectInfo> subjects = new java.util.ArrayList<>();
+        
+        System.out.println("Class 10 - WBBSE Madhyamik (Auto-configured):");
+        System.out.println("✓ First Language (Bengali)");
+        System.out.println("✓ Second Language (English)");
+        System.out.println("✓ Mathematics");
+        System.out.println("✓ Physical Science");
+        System.out.println("✓ Life Science");
+        System.out.println("✓ History");
+        System.out.println("✓ Geography");
+        System.out.println("✓ Optional Subject (Physical Education)");
+        
+        // Add compulsory subjects with default marks
+        subjects.add(new SubjectInfo("First_Language_Bengali", 100));
+        subjects.add(new SubjectInfo("Second_Language_English", 100));
+        subjects.add(new SubjectInfo("Mathematics", 100));
+        subjects.add(new SubjectInfo("Physical_Science", 100));
+        subjects.add(new SubjectInfo("Life_Science", 100));
+        subjects.add(new SubjectInfo("History", 100));
+        subjects.add(new SubjectInfo("Geography", 100));
+        
+        // Add automated optional subject
+        subjects.add(new SubjectInfo("Physical_Education", 100));
+        
+        return subjects;
+    }
+    
+    // Method to get Classes 11-12 stream-based subjects (auto-configured)
+    private static java.util.List<SubjectInfo> getHigherSecondarySubjects(java.util.Scanner scanner) {
+        java.util.List<SubjectInfo> subjects = new java.util.ArrayList<>();
+        
+        System.out.println("Classes 11-12 - WBCHSE Higher Secondary (Auto-configured):");
+        System.out.println("✓ First Language");
+        System.out.println("✓ Second Language (English)");
+        System.out.println("✓ Environmental Education");
+        System.out.println("✓ Stream-based Major Subjects (automatically assigned to students)");
+        System.out.println("  - Science: Mathematics, Physics, Chemistry, Biology");
+        System.out.println("  - Commerce: Economics, Business Studies, Accountancy, Mathematics");
+        System.out.println("  - Arts: History, Geography, Political Science, Philosophy");
+        
+        // Add compulsory subjects for all streams
+        subjects.add(new SubjectInfo("First_Language", 100));
+        subjects.add(new SubjectInfo("Second_Language_English", 100));
+        subjects.add(new SubjectInfo("Environmental_Education", 100));
+        
+        // Add placeholder subjects (actual subjects will be determined by student's stream)
+        subjects.add(new SubjectInfo("Major_Subject_1", 100));
+        subjects.add(new SubjectInfo("Major_Subject_2", 100));
+        subjects.add(new SubjectInfo("Major_Subject_3", 100));
+        subjects.add(new SubjectInfo("Major_Subject_4", 100));
+        
+        return subjects;
+    }
+    
+    // Method to get automated subjects based on class level
+    private static java.util.List<SubjectInfo> getAutomatedSubjects(int classNum) {
+        java.util.List<SubjectInfo> subjects = new java.util.ArrayList<>();
+        
+        if (classNum >= 1 && classNum <= 4) {
+            // Classes 1-4: Language (Bengali + English), Math, EVS, Arts, PE
+            subjects.add(new SubjectInfo("Bengali", 100));
+            subjects.add(new SubjectInfo("English", 100));
+            subjects.add(new SubjectInfo("Mathematics", 100));
+            subjects.add(new SubjectInfo("Environmental_Studies", 100));
+            subjects.add(new SubjectInfo("Arts_and_Crafts", 100));
+            subjects.add(new SubjectInfo("Physical_Education", 100));
+            
+        } else if (classNum >= 5 && classNum <= 8) {
+            // Classes 5-8: Languages, Math, Science, History, Geography, Work Ed, Arts, PE
+            subjects.add(new SubjectInfo("Bengali", 100));
+            subjects.add(new SubjectInfo("English", 100));
+            subjects.add(new SubjectInfo("Mathematics", 100));
+            subjects.add(new SubjectInfo("Science", 100));
+            subjects.add(new SubjectInfo("History", 100));
+            subjects.add(new SubjectInfo("Geography", 100));
+            subjects.add(new SubjectInfo("Work_Education", 100));
+            subjects.add(new SubjectInfo("Arts_and_Crafts", 100));
+            subjects.add(new SubjectInfo("Physical_Education", 100));
+            
+        } else if (classNum == 9) {
+            // Class 9: First Lang, Second Lang, Math, Physical Science, Life Science, History, Geography, Optional subject
+            subjects.add(new SubjectInfo("First_Language_Bengali", 100));
+            subjects.add(new SubjectInfo("Second_Language_English", 100));
+            subjects.add(new SubjectInfo("Mathematics", 100));
+            subjects.add(new SubjectInfo("Physical_Science", 100));
+            subjects.add(new SubjectInfo("Life_Science", 100));
+            subjects.add(new SubjectInfo("History", 100));
+            subjects.add(new SubjectInfo("Geography", 100));
+            subjects.add(new SubjectInfo("Computer_Applications", 100)); // Default optional subject
+        }
+        
+        return subjects;
+    }
+    
+    // Helper method to parse class range
+    private static java.util.List<Integer> parseClassRange(String classRange) {
+        java.util.List<Integer> classes = new java.util.ArrayList<>();
+        
+        if (classRange.contains("-")) {
+            String[] parts = classRange.split("-");
+            int start = Integer.parseInt(parts[0]);
+            int end = Integer.parseInt(parts[1]);
+            for (int i = start; i <= end; i++) {
+                classes.add(i);
+            }
+        } else {
+            // Single class or comma-separated classes
+            String[] parts = classRange.split(",");
+            for (String part : parts) {
+                classes.add(Integer.parseInt(part.trim()));
+            }
+        }
+        
+        return classes;
+    }
+    
+    // Subject information class
+    static class SubjectInfo {
+        String name;
+        int fullMarks;
+        
+        SubjectInfo(String name, int fullMarks) {
+            this.name = name;
+            this.fullMarks = fullMarks;
+        }
+    }
+    
+    // Stream and section assignment class
+    static class StreamSectionAssignment {
+        char section;
+        String stream;
+        
+        StreamSectionAssignment(char section, String stream) {
+            this.section = section;
+            this.stream = stream;
+        }
+    }
+    
+    // Method to get stream-based section assignment for classes 11 and 12
+    private static StreamSectionAssignment getStreamBasedSection(char currentSection, int numSections, int currentRollNo, int studentsPerSection) {
+        String[] streams = {"Science", "Arts", "Commerce"};
+        
+        if (numSections == 1) {
+            // Only one section - distribute streams evenly within the section
+            int studentIndex = currentRollNo - 1;
+            int streamIndex = studentIndex % 3;
+            return new StreamSectionAssignment('A', streams[streamIndex]);
+        } else if (numSections == 2) {
+            // Two sections: Science in A, Arts and Commerce mixed in B
+            if (currentSection == 'A') {
+                return new StreamSectionAssignment('A', "Science");
+            } else {
+                // Alternate between Arts and Commerce in section B
+                int streamChoice = (currentRollNo % 2 == 1) ? 1 : 2; // Arts or Commerce
+                return new StreamSectionAssignment('B', streams[streamChoice]);
+            }
+        } else if (numSections == 3) {
+            // Three sections: Science in A, Arts in B, Commerce in C
+            char[] sectionMap = {'A', 'B', 'C'};
+            return new StreamSectionAssignment(sectionMap[currentSection - 'A'], streams[currentSection - 'A']);
+        } else if (numSections >= 4) {
+            // Four or more sections: Science in A, Arts in B and C, Commerce in D (and beyond if more sections)
+            if (currentSection == 'A') {
+                return new StreamSectionAssignment('A', "Science");
+            } else if (currentSection == 'B' || currentSection == 'C') {
+                return new StreamSectionAssignment(currentSection, "Arts");
+            } else {
+                return new StreamSectionAssignment(currentSection, "Commerce");
+            }
+        }
+        
+        // Default fallback
+        return new StreamSectionAssignment(currentSection, "Science");
+    }
+    
+    // Method to create academic table for a specific school, class, and year
+    private static void createAcademicTable(String schoolName, int classNum, int sessionYear, 
+                                          java.util.List<SubjectInfo> subjects, int numTerms, boolean isBoardExam) {
+        String sanitizedSchoolName = schoolName.toLowerCase()
+                .replaceAll("[^a-zA-Z0-9]", "_")
+                .replaceAll("_{2,}", "_")
+                .replaceAll("^_|_$", "");
+        
+        String tableName = sanitizedSchoolName + "_class_" + classNum + "_" + sessionYear;
+        
+        try (Connection conn = getConnection()) {
+            if (classNum == 11 || classNum == 12) {
+                // Special table structure for classes 11 and 12
+                createHigherSecondaryTable(conn, tableName, numTerms, isBoardExam);
+            } else {
+                // Regular table structure for other classes
+                createRegularAcademicTable(conn, tableName, subjects, numTerms, isBoardExam);
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error creating academic table " + tableName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to create regular academic table for classes 1-10
+    private static void createRegularAcademicTable(Connection conn, String tableName, 
+                                                 java.util.List<SubjectInfo> subjects, int numTerms, boolean isBoardExam) throws SQLException {
+        StringBuilder createTableSQL = new StringBuilder();
+        createTableSQL.append("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (");
+        createTableSQL.append("student_uuid UUID PRIMARY KEY, ");
+        createTableSQL.append("student_name VARCHAR(100), ");
+        createTableSQL.append("roll_no INTEGER, ");
+        createTableSQL.append("section VARCHAR(5), ");
+        
+        // Add columns for each subject and term
+        for (SubjectInfo subject : subjects) {
+            String subjectNameSanitized = subject.name.toLowerCase()
+                    .replaceAll("[^a-zA-Z0-9]", "_")
+                    .replaceAll("_{2,}", "_")
+                    .replaceAll("^_|_$", "");
+            
+            for (int term = 1; term <= numTerms; term++) {
+                createTableSQL.append(subjectNameSanitized).append("_full_marks_term_").append(term)
+                        .append(" INTEGER DEFAULT ").append(subject.fullMarks).append(", ");
+                createTableSQL.append(subjectNameSanitized).append("_obtained_marks_term_").append(term)
+                        .append(" INTEGER, ");
+            }
+        }
+        
+        // Add total marks and percentage columns for each term
+        for (int term = 1; term <= numTerms; term++) {
+            createTableSQL.append("total_marks_term_").append(term).append(" INTEGER, ");
+            createTableSQL.append("percentage_term_").append(term).append(" DECIMAL(5,2), ");
+        }
+        
+        // Add grand total and grand percentage
+        createTableSQL.append("grand_total INTEGER, ");
+        createTableSQL.append("percentage_grand_total DECIMAL(5,2), ");
+        
+        // Add board exam indicator
+        if (isBoardExam) {
+            createTableSQL.append("is_board_exam BOOLEAN DEFAULT TRUE, ");
+            createTableSQL.append("board_exam_note VARCHAR(255) DEFAULT 'Grand total calculated from final term only', ");
+        }
+        
+        createTableSQL.append("created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+        createTableSQL.append(")");
+        
+        try (Statement stmt = conn.createStatement()) {
+            stmt.execute(createTableSQL.toString());
+            String examType = isBoardExam ? " (Board Exam)" : "";
+            System.out.println("Created academic table: " + tableName + examType);
+        }
+    }
+    
+    // Method to create higher secondary table for classes 11 and 12
+    private static void createHigherSecondaryTable(Connection conn, String tableName, int numTerms, boolean isBoardExam) throws SQLException {
+        StringBuilder createTableSQL = new StringBuilder();
+        createTableSQL.append("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (");
+        createTableSQL.append("student_uuid UUID PRIMARY KEY, ");
+        createTableSQL.append("student_name VARCHAR(100), ");
+        createTableSQL.append("roll_no INTEGER, ");
+        createTableSQL.append("section VARCHAR(5), ");
+        
+        // Fixed structure for classes 11 and 12
+        // First Language
+        for (int term = 1; term <= numTerms; term++) {
+            createTableSQL.append("first_language_full_marks_term_").append(term).append(" INTEGER DEFAULT 100, ");
+            createTableSQL.append("first_language_obtained_marks_term_").append(term).append(" INTEGER, ");
+        }
+        
+        // Second Language (English)
+        for (int term = 1; term <= numTerms; term++) {
+            createTableSQL.append("second_language_english_full_marks_term_").append(term).append(" INTEGER DEFAULT 100, ");
+            createTableSQL.append("second_language_english_obtained_marks_term_").append(term).append(" INTEGER, ");
+        }
+        
+        // Major subject names (will be populated based on stream)
+        createTableSQL.append("major_1_subject_name VARCHAR(100), ");
+        createTableSQL.append("major_2_subject_name VARCHAR(100), ");
+        createTableSQL.append("major_3_subject_name VARCHAR(100), ");
+        createTableSQL.append("major_4_subject_name VARCHAR(100), ");
+        
+        // Major subjects marks
+        for (int majorNum = 1; majorNum <= 4; majorNum++) {
+            for (int term = 1; term <= numTerms; term++) {
+                createTableSQL.append("major_").append(majorNum).append("_full_marks_term_").append(term).append(" INTEGER DEFAULT 100, ");
+                createTableSQL.append("major_").append(majorNum).append("_obtained_marks_term_").append(term).append(" INTEGER, ");
+            }
+        }
+        
+        // Total marks and percentages for each term
+        for (int term = 1; term <= numTerms; term++) {
+            createTableSQL.append("total_marks_term_").append(term).append(" INTEGER, ");
+            createTableSQL.append("percentage_term_").append(term).append(" DECIMAL(5,2), ");
+        }
+        
+        // Grand total and grand percentage
+        createTableSQL.append("grand_total INTEGER, ");
+        createTableSQL.append("percentage_grand_total DECIMAL(5,2), ");
+        
+        // Board exam indicator
+        if (isBoardExam) {
+            createTableSQL.append("is_board_exam BOOLEAN DEFAULT TRUE, ");
+            createTableSQL.append("board_exam_note VARCHAR(255) DEFAULT 'Grand total calculated from final term only', ");
+        } else {
+            createTableSQL.append("is_board_exam BOOLEAN DEFAULT FALSE, ");
+            createTableSQL.append("board_exam_note VARCHAR(255), ");
+        }
+        
+        createTableSQL.append("created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+        createTableSQL.append(")");
+        
+        try (Statement stmt = conn.createStatement()) {
+            stmt.execute(createTableSQL.toString());
+            String examType = isBoardExam ? " (Board Exam)" : "";
+            System.out.println("Created higher secondary table: " + tableName + examType);
+        }
+    }
+    
+    // Method to generate academic data for students
+    private static void generateAcademicData(String schoolName, int classNum, int sessionYear, 
+                                           java.util.List<SubjectInfo> subjects, int numTerms, boolean isBoardExam) {
+        String sanitizedSchoolName = schoolName.toLowerCase()
+                .replaceAll("[^a-zA-Z0-9]", "_")
+                .replaceAll("_{2,}", "_")
+                .replaceAll("^_|_$", "");
+        
+        String academicTableName = sanitizedSchoolName + "_class_" + classNum + "_" + sessionYear;
+        String studentTableName = getStudentTableName(schoolName);
+        
+        try (Connection conn = getConnection()) {
+            // Get students from the specific class
+            String selectStudentsSQL = "SELECT student_uuid, full_name, roll_no, section, stream FROM " + 
+                    studentTableName + " WHERE class_name = ?";
+            
+            try (PreparedStatement selectStmt = conn.prepareStatement(selectStudentsSQL)) {
+                selectStmt.setString(1, "Class " + classNum);
+                
+                try (ResultSet rs = selectStmt.executeQuery()) {
+                    while (rs.next()) {
+                        String studentUuid = rs.getString("student_uuid");
+                        String studentName = rs.getString("full_name");
+                        int rollNo = rs.getInt("roll_no");
+                        String section = rs.getString("section");
+                        String stream = rs.getString("stream");
+                        
+                        // Generate marks for this student
+                        if (classNum == 11 || classNum == 12) {
+                            insertHigherSecondaryRecord(conn, academicTableName, studentUuid, studentName, 
+                                                       rollNo, section, stream, numTerms, isBoardExam);
+                        } else {
+                            insertAcademicRecord(conn, academicTableName, studentUuid, studentName, 
+                                               rollNo, section, subjects, numTerms, isBoardExam);
+                        }
+                    }
+                }
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error generating academic data for " + academicTableName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to create board exam table for classes 10 and 12
+    private static void createBoardExamTable(String schoolName, int classNum, int sessionYear, 
+                                           java.util.List<SubjectInfo> subjects, int numTerms) {
+        String sanitizedSchoolName = schoolName.toLowerCase()
+                .replaceAll("[^a-zA-Z0-9]", "_")
+                .replaceAll("_{2,}", "_")
+                .replaceAll("^_|_$", "");
+        
+        String boardTableName = sanitizedSchoolName + "_class_" + classNum + "_" + sessionYear + "_board_exam";
+        
+        try (Connection conn = getConnection()) {
+            if (classNum == 10) {
+                createClass10BoardExamTable(conn, boardTableName, subjects);
+            } else if (classNum == 12) {
+                createClass12BoardExamTable(conn, boardTableName);
+            }
+        } catch (SQLException e) {
+            System.err.println("Error creating board exam table " + boardTableName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to create Class 10 board exam table structure
+    private static void createClass10BoardExamTable(Connection conn, String tableName, 
+                                                   java.util.List<SubjectInfo> subjects) throws SQLException {
+        StringBuilder createTableSQL = new StringBuilder();
+        createTableSQL.append("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (");
+        createTableSQL.append("student_uuid UUID PRIMARY KEY, ");
+        createTableSQL.append("student_name VARCHAR(100), ");
+        createTableSQL.append("roll_no INTEGER, ");
+        createTableSQL.append("section VARCHAR(5), ");
+        
+        // Add columns for each subject (no term numbers for board exam)
+        for (SubjectInfo subject : subjects) {
+            String subjectNameSanitized = subject.name.toLowerCase()
+                    .replaceAll("[^a-zA-Z0-9]", "_")
+                    .replaceAll("_{2,}", "_")
+                    .replaceAll("^_|_$", "");
+            
+            createTableSQL.append(subjectNameSanitized).append("_full_marks INTEGER DEFAULT ")
+                    .append(subject.fullMarks).append(", ");
+            createTableSQL.append(subjectNameSanitized).append("_obtained_marks INTEGER, ");
+        }
+        
+        // Add total marks and percentage (no term numbers)
+        createTableSQL.append("total_marks INTEGER, ");
+        createTableSQL.append("percentage DECIMAL(5,2), ");
+        createTableSQL.append("grand_total INTEGER, ");
+        createTableSQL.append("percentage_grand_total DECIMAL(5,2), ");
+        createTableSQL.append("is_board_exam BOOLEAN DEFAULT TRUE, ");
+        createTableSQL.append("board_exam_note VARCHAR(255) DEFAULT 'WBBSE Madhyamik Board Examination', ");
+        createTableSQL.append("created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+        createTableSQL.append(")");
+        
+        try (Statement stmt = conn.createStatement()) {
+            stmt.execute(createTableSQL.toString());
+            System.out.println("Created Class 10 board exam table: " + tableName);
+        }
+    }
+    
+    // Method to create Class 12 board exam table structure
+    private static void createClass12BoardExamTable(Connection conn, String tableName) throws SQLException {
+        StringBuilder createTableSQL = new StringBuilder();
+        createTableSQL.append("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (");
+        createTableSQL.append("student_uuid UUID PRIMARY KEY, ");
+        createTableSQL.append("student_name VARCHAR(100), ");
+        createTableSQL.append("roll_no INTEGER, ");
+        createTableSQL.append("section VARCHAR(5), ");
+        
+        // Simplified structure for Class 12 board exam (no term numbers)
+        createTableSQL.append("first_language_full_marks INTEGER DEFAULT 100, ");
+        createTableSQL.append("first_language_obtained_marks INTEGER, ");
+        createTableSQL.append("second_language_english_full_marks INTEGER DEFAULT 100, ");
+        createTableSQL.append("second_language_english_obtained_marks INTEGER, ");
+        
+        // Major subject names
+        createTableSQL.append("major_1_subject_name VARCHAR(100), ");
+        createTableSQL.append("major_2_subject_name VARCHAR(100), ");
+        createTableSQL.append("major_3_subject_name VARCHAR(100), ");
+        createTableSQL.append("major_4_subject_name VARCHAR(100), ");
+        
+        // Major subjects marks (no term numbers)
+        createTableSQL.append("major_1_full_marks INTEGER DEFAULT 100, ");
+        createTableSQL.append("major_1_obtained_marks INTEGER, ");
+        createTableSQL.append("major_2_full_marks INTEGER DEFAULT 100, ");
+        createTableSQL.append("major_2_obtained_marks INTEGER, ");
+        createTableSQL.append("major_3_full_marks INTEGER DEFAULT 100, ");
+        createTableSQL.append("major_3_obtained_marks INTEGER, ");
+        createTableSQL.append("major_4_full_marks INTEGER DEFAULT 100, ");
+        createTableSQL.append("major_4_obtained_marks INTEGER, ");
+        
+        // Total marks and percentages (no term numbers)
+        createTableSQL.append("total_marks INTEGER, ");
+        createTableSQL.append("percentage DECIMAL(5,2), ");
+        createTableSQL.append("grand_total INTEGER, ");
+        createTableSQL.append("percentage_grand_total DECIMAL(5,2), ");
+        createTableSQL.append("is_board_exam BOOLEAN DEFAULT TRUE, ");
+        createTableSQL.append("board_exam_note VARCHAR(255) DEFAULT 'WBCHSE Higher Secondary Board Examination', ");
+        createTableSQL.append("created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+        createTableSQL.append(")");
+        
+        try (Statement stmt = conn.createStatement()) {
+            stmt.execute(createTableSQL.toString());
+            System.out.println("Created Class 12 board exam table: " + tableName);
+        }
+    }
+    
+    // Method to generate board exam data
+    private static void generateBoardExamData(String schoolName, int classNum, int sessionYear, 
+                                            java.util.List<SubjectInfo> subjects, int numTerms) {
+        String sanitizedSchoolName = schoolName.toLowerCase()
+                .replaceAll("[^a-zA-Z0-9]", "_")
+                .replaceAll("_{2,}", "_")
+                .replaceAll("^_|_$", "");
+        
+        String boardTableName = sanitizedSchoolName + "_class_" + classNum + "_" + sessionYear + "_board_exam";
+        String studentTableName = getStudentTableName(schoolName);
+        
+        try (Connection conn = getConnection()) {
+            // Get students from the specific class
+            String selectStudentsSQL = "SELECT student_uuid, full_name, roll_no, section, stream FROM " + 
+                    studentTableName + " WHERE class_name = ?";
+            
+            try (PreparedStatement selectStmt = conn.prepareStatement(selectStudentsSQL)) {
+                selectStmt.setString(1, "Class " + classNum);
+                
+                try (ResultSet rs = selectStmt.executeQuery()) {
+                    while (rs.next()) {
+                        String studentUuid = rs.getString("student_uuid");
+                        String studentName = rs.getString("full_name");
+                        int rollNo = rs.getInt("roll_no");
+                        String section = rs.getString("section");
+                        String stream = rs.getString("stream");
+                        
+                        // Generate board exam marks
+                        if (classNum == 12) {
+                            insertClass12BoardExamRecord(conn, boardTableName, studentUuid, studentName, 
+                                                        rollNo, section, stream);
+                        } else if (classNum == 10) {
+                            insertClass10BoardExamRecord(conn, boardTableName, studentUuid, studentName, 
+                                                        rollNo, section, subjects);
+                        }
+                    }
+                }
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error generating board exam data for " + boardTableName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to insert Class 10 board exam record
+    private static void insertClass10BoardExamRecord(Connection conn, String tableName, String studentUuid, 
+                                                    String studentName, int rollNo, String section, 
+                                                    java.util.List<SubjectInfo> subjects) {
+        try {
+            // Build INSERT statement for Class 10 board exam
+            StringBuilder insertSQL = new StringBuilder();
+            insertSQL.append("INSERT INTO ").append(tableName).append(" (");
+            insertSQL.append("student_uuid, student_name, roll_no, section, ");
+            
+            // Add column names for subjects (no term numbers)
+            for (SubjectInfo subject : subjects) {
+                String subjectNameSanitized = subject.name.toLowerCase()
+                        .replaceAll("[^a-zA-Z0-9]", "_")
+                        .replaceAll("_{2,}", "_")
+                        .replaceAll("^_|_$", "");
+                
+                insertSQL.append(subjectNameSanitized).append("_obtained_marks, ");
+            }
+            
+            insertSQL.append("total_marks, percentage, grand_total, percentage_grand_total) VALUES (");
+            
+            // Add placeholders (4 basic + subjects + 4 totals)
+            int totalColumns = 4 + subjects.size() + 4;
+            for (int i = 0; i < totalColumns; i++) {
+                insertSQL.append("?");
+                if (i < totalColumns - 1) insertSQL.append(", ");
+            }
+            insertSQL.append(")");
+            
+            try (PreparedStatement pstmt = conn.prepareStatement(insertSQL.toString())) {
+                int paramIndex = 1;
+                
+                // Set basic student info
+                pstmt.setObject(paramIndex++, java.util.UUID.fromString(studentUuid));
+                pstmt.setString(paramIndex++, studentName);
+                pstmt.setInt(paramIndex++, rollNo);
+                pstmt.setString(paramIndex++, section);
+                
+                // Generate and set marks for each subject
+                int totalMarks = 0;
+                int totalFullMarks = 0;
+                
+                for (SubjectInfo subject : subjects) {
+                    // Generate random marks (40-100% of full marks for board exam)
+                    int minMarks = (int) (subject.fullMarks * 0.4); // 40% minimum
+                    int maxMarks = subject.fullMarks;
+                    int obtainedMarks = minMarks + (int) (Math.random() * (maxMarks - minMarks + 1));
+                    
+                    pstmt.setInt(paramIndex++, obtainedMarks);
+                    totalMarks += obtainedMarks;
+                    totalFullMarks += subject.fullMarks;
+                }
+                
+                // Set totals and percentages
+                double percentage = (totalMarks * 100.0) / totalFullMarks;
+                pstmt.setInt(paramIndex++, totalMarks); // total_marks
+                pstmt.setDouble(paramIndex++, Math.round(percentage * 100.0) / 100.0); // percentage
+                pstmt.setInt(paramIndex++, totalMarks); // grand_total (same as total for board exam)
+                pstmt.setDouble(paramIndex++, Math.round(percentage * 100.0) / 100.0); // percentage_grand_total
+                
+                pstmt.executeUpdate();
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error inserting Class 10 board exam record for student " + studentName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to insert Class 12 board exam record
+    private static void insertClass12BoardExamRecord(Connection conn, String tableName, String studentUuid, 
+                                                    String studentName, int rollNo, String section, String stream) {
+        try {
+            // Get stream-based subjects
+            String[] subjectNames = getStreamSubjects(stream);
+            
+            // Build INSERT statement for Class 12 board exam
+            StringBuilder insertSQL = new StringBuilder();
+            insertSQL.append("INSERT INTO ").append(tableName).append(" (");
+            insertSQL.append("student_uuid, student_name, roll_no, section, ");
+            insertSQL.append("first_language_obtained_marks, ");
+            insertSQL.append("second_language_english_obtained_marks, ");
+            insertSQL.append("major_1_subject_name, major_2_subject_name, major_3_subject_name, major_4_subject_name, ");
+            insertSQL.append("major_1_obtained_marks, major_2_obtained_marks, major_3_obtained_marks, major_4_obtained_marks, ");
+            insertSQL.append("total_marks, percentage, grand_total, percentage_grand_total) VALUES (");
+            
+            // Add placeholders (4 basic + 2 languages + 4 names + 4 majors + 4 totals = 18)
+            for (int i = 0; i < 18; i++) {
+                insertSQL.append("?");
+                if (i < 17) insertSQL.append(", ");
+            }
+            insertSQL.append(")");
+            
+            try (PreparedStatement pstmt = conn.prepareStatement(insertSQL.toString())) {
+                int paramIndex = 1;
+                
+                // Set basic student info
+                pstmt.setObject(paramIndex++, java.util.UUID.fromString(studentUuid));
+                pstmt.setString(paramIndex++, studentName);
+                pstmt.setInt(paramIndex++, rollNo);
+                pstmt.setString(paramIndex++, section);
+                
+                // Generate language marks
+                int firstLangMarks = 40 + (int) (Math.random() * 61); // 40-100
+                int englishMarks = 40 + (int) (Math.random() * 61); // 40-100
+                pstmt.setInt(paramIndex++, firstLangMarks);
+                pstmt.setInt(paramIndex++, englishMarks);
+                
+                // Set subject names
+                for (int i = 0; i < 4; i++) {
+                    pstmt.setString(paramIndex++, subjectNames[i]);
+                }
+                
+                // Generate major subjects marks
+                int totalMarks = firstLangMarks + englishMarks;
+                for (int majorNum = 1; majorNum <= 4; majorNum++) {
+                    int majorMarks = 40 + (int) (Math.random() * 61); // 40-100
+                    pstmt.setInt(paramIndex++, majorMarks);
+                    totalMarks += majorMarks;
+                }
+                
+                // Set totals and percentages (600 total marks for 6 subjects)
+                double percentage = (totalMarks * 100.0) / 600;
+                pstmt.setInt(paramIndex++, totalMarks); // total_marks
+                pstmt.setDouble(paramIndex++, Math.round(percentage * 100.0) / 100.0); // percentage
+                pstmt.setInt(paramIndex++, totalMarks); // grand_total (same as total for board exam)
+                pstmt.setDouble(paramIndex++, Math.round(percentage * 100.0) / 100.0); // percentage_grand_total
+                
+                pstmt.executeUpdate();
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error inserting Class 12 board exam record for student " + studentName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to insert academic record for a student
+    private static void insertAcademicRecord(Connection conn, String tableName, String studentUuid, 
+                                           String studentName, int rollNo, String section, 
+                                           java.util.List<SubjectInfo> subjects, int numTerms, boolean isBoardExam) {
+        try {
+            // Build INSERT statement dynamically
+            StringBuilder insertSQL = new StringBuilder();
+            insertSQL.append("INSERT INTO ").append(tableName).append(" (");
+            insertSQL.append("student_uuid, student_name, roll_no, section, ");
+            
+            // Add column names for subjects and terms
+            for (SubjectInfo subject : subjects) {
+                String subjectNameSanitized = subject.name.toLowerCase()
+                        .replaceAll("[^a-zA-Z0-9]", "_")
+                        .replaceAll("_{2,}", "_")
+                        .replaceAll("^_|_$", "");
+                
+                for (int term = 1; term <= numTerms; term++) {
+                    insertSQL.append(subjectNameSanitized).append("_obtained_marks_term_").append(term).append(", ");
+                }
+            }
+            
+            // Add total marks and percentage columns
+            for (int term = 1; term <= numTerms; term++) {
+                insertSQL.append("total_marks_term_").append(term).append(", ");
+                insertSQL.append("percentage_term_").append(term).append(", ");
+            }
+            
+            insertSQL.append("grand_total, percentage_grand_total) VALUES (");
+            
+            // Add placeholders
+            int totalColumns = 4 + (subjects.size() * numTerms) + (2 * numTerms) + 2;
+            for (int i = 0; i < totalColumns; i++) {
+                insertSQL.append("?");
+                if (i < totalColumns - 1) insertSQL.append(", ");
+            }
+            insertSQL.append(")");
+            
+            try (PreparedStatement pstmt = conn.prepareStatement(insertSQL.toString())) {
+                int paramIndex = 1;
+                
+                // Set basic student info
+                pstmt.setObject(paramIndex++, java.util.UUID.fromString(studentUuid));
+                pstmt.setString(paramIndex++, studentName);
+                pstmt.setInt(paramIndex++, rollNo);
+                pstmt.setString(paramIndex++, section);
+                
+                // Generate and set marks for each subject and term
+                int[] termTotals = new int[numTerms];
+                int[] termFullMarks = new int[numTerms];
+                
+                for (SubjectInfo subject : subjects) {
+                    for (int term = 1; term <= numTerms; term++) {
+                        // Generate random marks (40-100% of full marks for realistic distribution)
+                        int minMarks = (int) (subject.fullMarks * 0.4); // 40% minimum
+                        int maxMarks = subject.fullMarks;
+                        int obtainedMarks = minMarks + (int) (Math.random() * (maxMarks - minMarks + 1));
+                        
+                        pstmt.setInt(paramIndex++, obtainedMarks);
+                        termTotals[term - 1] += obtainedMarks;
+                        termFullMarks[term - 1] += subject.fullMarks;
+                    }
+                }
+                
+                // Set term totals and percentages
+                int grandTotal = 0;
+                int grandFullMarks = 0;
+                
+                for (int term = 0; term < numTerms; term++) {
+                    pstmt.setInt(paramIndex++, termTotals[term]);
+                    double percentage = (termTotals[term] * 100.0) / termFullMarks[term];
+                    pstmt.setDouble(paramIndex++, Math.round(percentage * 100.0) / 100.0);
+                    
+                    // For board exams, only the last term counts for grand total
+                    if (isBoardExam) {
+                        if (term == numTerms - 1) { // Last term only
+                            grandTotal = termTotals[term];
+                            grandFullMarks = termFullMarks[term];
+                        }
+                    } else {
+                        // For regular classes, all terms count
+                        grandTotal += termTotals[term];
+                        grandFullMarks += termFullMarks[term];
+                    }
+                }
+                
+                // Set grand total and grand percentage
+                pstmt.setInt(paramIndex++, grandTotal);
+                double grandPercentage = (grandTotal * 100.0) / grandFullMarks;
+                pstmt.setDouble(paramIndex++, Math.round(grandPercentage * 100.0) / 100.0);
+                
+                pstmt.executeUpdate();
+                
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error inserting academic record for student " + studentName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to insert higher secondary record for classes 11 and 12
+    private static void insertHigherSecondaryRecord(Connection conn, String tableName, String studentUuid, 
+                                                  String studentName, int rollNo, String section, 
+                                                  String stream, int numTerms, boolean isBoardExam) {
+        try {
+            // Get stream-based subjects
+            String[] subjectNames = getStreamSubjects(stream);
+            
+            // Build INSERT statement for higher secondary structure
+            StringBuilder insertSQL = new StringBuilder();
+            insertSQL.append("INSERT INTO ").append(tableName).append(" (");
+            insertSQL.append("student_uuid, student_name, roll_no, section, ");
+            
+            // Add first language columns
+            for (int term = 1; term <= numTerms; term++) {
+                insertSQL.append("first_language_obtained_marks_term_").append(term).append(", ");
+            }
+            
+            // Add second language columns
+            for (int term = 1; term <= numTerms; term++) {
+                insertSQL.append("second_language_english_obtained_marks_term_").append(term).append(", ");
+            }
+            
+            // Add subject names
+            insertSQL.append("major_1_subject_name, major_2_subject_name, major_3_subject_name, major_4_subject_name, ");
+            
+            // Add major subjects columns
+            for (int majorNum = 1; majorNum <= 4; majorNum++) {
+                for (int term = 1; term <= numTerms; term++) {
+                    insertSQL.append("major_").append(majorNum).append("_obtained_marks_term_").append(term).append(", ");
+                }
+            }
+            
+            // Add total marks and percentage columns
+            for (int term = 1; term <= numTerms; term++) {
+                insertSQL.append("total_marks_term_").append(term).append(", ");
+                insertSQL.append("percentage_term_").append(term).append(", ");
+            }
+            
+            insertSQL.append("grand_total, percentage_grand_total) VALUES (");
+            
+            // Add placeholders (4 basic + 2*numTerms lang + 4 names + 4*numTerms majors + 2*numTerms totals + 2 grand)
+            int totalColumns = 4 + (2 * numTerms) + 4 + (4 * numTerms) + (2 * numTerms) + 2;
+            for (int i = 0; i < totalColumns; i++) {
+                insertSQL.append("?");
+                if (i < totalColumns - 1) insertSQL.append(", ");
+            }
+            insertSQL.append(")");
+            
+            try (PreparedStatement pstmt = conn.prepareStatement(insertSQL.toString())) {
+                int paramIndex = 1;
+                
+                // Set basic student info
+                pstmt.setObject(paramIndex++, java.util.UUID.fromString(studentUuid));
+                pstmt.setString(paramIndex++, studentName);
+                pstmt.setInt(paramIndex++, rollNo);
+                pstmt.setString(paramIndex++, section);
+                
+                // Initialize arrays for calculations
+                int[] termTotals = new int[numTerms];
+                int totalFullMarks = 600; // 6 subjects × 100 marks each
+                
+                // Generate first language marks
+                for (int term = 1; term <= numTerms; term++) {
+                    int firstLangMarks = 40 + (int) (Math.random() * 61); // 40-100
+                    pstmt.setInt(paramIndex++, firstLangMarks);
+                    termTotals[term - 1] += firstLangMarks;
+                }
+                
+                // Generate second language (English) marks
+                for (int term = 1; term <= numTerms; term++) {
+                    int englishMarks = 40 + (int) (Math.random() * 61); // 40-100
+                    pstmt.setInt(paramIndex++, englishMarks);
+                    termTotals[term - 1] += englishMarks;
+                }
+                
+                // Set subject names
+                for (int i = 0; i < 4; i++) {
+                    pstmt.setString(paramIndex++, subjectNames[i]);
+                }
+                
+                // Generate major subjects marks
+                for (int majorNum = 1; majorNum <= 4; majorNum++) {
+                    for (int term = 1; term <= numTerms; term++) {
+                        int majorMarks = 40 + (int) (Math.random() * 61); // 40-100
+                        pstmt.setInt(paramIndex++, majorMarks);
+                        termTotals[term - 1] += majorMarks;
+                    }
+                }
+                
+                // Set term totals and percentages
+                int grandTotal = 0;
+                for (int term = 0; term < numTerms; term++) {
+                    pstmt.setInt(paramIndex++, termTotals[term]);
+                    double percentage = (termTotals[term] * 100.0) / totalFullMarks;
+                    pstmt.setDouble(paramIndex++, Math.round(percentage * 100.0) / 100.0);
+                    
+                    // For board exams, only the last term counts for grand total
+                    if (isBoardExam) {
+                        if (term == numTerms - 1) { // Last term only
+                            grandTotal = termTotals[term];
+                        }
+                    } else {
+                        // For regular classes, all terms count
+                        grandTotal += termTotals[term];
+                    }
+                }
+                
+                // Set grand total and grand percentage
+                pstmt.setInt(paramIndex++, grandTotal);
+                int grandFullMarks = isBoardExam ? totalFullMarks : (totalFullMarks * numTerms);
+                double grandPercentage = (grandTotal * 100.0) / grandFullMarks;
+                pstmt.setDouble(paramIndex++, Math.round(grandPercentage * 100.0) / 100.0);
+                
+                pstmt.executeUpdate();
+                
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error inserting higher secondary record for student " + studentName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to get subjects based on stream
+    private static String[] getStreamSubjects(String stream) {
+        if (stream == null) stream = "Science"; // Default fallback
+        
+        switch (stream) {
+            case "Science":
+                return new String[]{"Mathematics", "Physics", "Chemistry", "Biology"};
+            case "Commerce":
+                return new String[]{"Economics", "Business_Studies", "Accountancy", "Mathematics"};
+            case "Arts":
+                return new String[]{"History", "Geography", "Political_Science", "Philosophy"};
+            default:
+                return new String[]{"Mathematics", "Physics", "Chemistry", "Biology"}; // Default to Science
+        }
     }
 }

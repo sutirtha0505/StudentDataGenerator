@@ -11,6 +11,10 @@ This application generates comprehensive student data for multiple schools and s
 - ✅ **Comprehensive Student Data** - Name, guardian, demographics, medical info, etc.
 - ✅ **School Distribution** - Distributes students across multiple schools
 - ✅ **MinIO Image URLs** - Generates image URLs for each student
+- ✅ **Academic Results Generation** - Creates marksheets and exam results for students
+- ✅ **Multi-term Support** - Supports multiple terms/semesters per academic year
+- ✅ **Flexible Subject Configuration** - Customizable subjects with individual full marks
+- ✅ **Automatic Calculations** - Computes totals and percentages automatically
 
 ## 🛠️ Prerequisites
 1. **Java 8 or higher**
@@ -88,6 +92,51 @@ CREATE TABLE students_{school_name} (
     image_url TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+```
+
+### Academic Tables (one per school, class, and year)
+```sql
+CREATE TABLE {school_name}_class_{class_number}_{session_year} (
+    student_uuid UUID PRIMARY KEY,
+    student_name VARCHAR(100),
+    roll_no INTEGER,
+    section VARCHAR(5),
+    -- Subject columns (dynamic based on user input)
+    {subject_name}_full_marks_term_{term_number} INTEGER DEFAULT {full_marks},
+    {subject_name}_obtained_marks_term_{term_number} INTEGER,
+    -- Term totals and percentages
+    total_marks_term_{term_number} INTEGER,
+    percentage_term_{term_number} DECIMAL(5,2),
+    -- Grand totals
+    grand_total INTEGER,
+    percentage_grand_total DECIMAL(5,2),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## 🎓 Academic Features
+
+After generating student data, the system will automatically proceed to generate academic results:
+
+### Academic Data Generation Process
+1. **Class Selection**: Enter class range (e.g., '1-3' or '6-8')
+2. **Term Configuration**: Specify number of terms per academic year
+3. **Subject Setup**: Define subjects and their full marks
+4. **Automatic Generation**: System creates marksheets for all students
+
+### Academic Table Naming
+- Pattern: `{sanitized_school_name}_class_{class_number}_{session_year}`
+- Example: `st_mary_public_school_class_1_2025`
+
+### Student Progression Logic
+- Students get marksheets for their academic journey
+- Class 3 student gets: Class 1 (2023), Class 2 (2024), Class 3 (2025)
+- Realistic progression based on current year
+
+### Mark Generation
+- Realistic mark distribution (40-100% of full marks)
+- Automatic calculation of totals and percentages
+- Separate tracking for each term
 ```
 
 ## 🔍 Sample SQL Queries
