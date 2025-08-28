@@ -1,5 +1,15 @@
 # Student Data Generator with PostgreSQL Integration
 
+## 🎥 What it does?
+---
+
+##  Demo Video  
+[![Watch the Universe From Scratch Demo](./assets/Thumbnail.png)](./assets/Universe_From_Scratch.mp4)
+
+*Click the thumbnail to play the video in your browser.*
+
+---
+
 ## 🎯 Overview
 This application generates comprehensive student data for multiple schools and stores it in PostgreSQL database with multithreading support and real-time progress monitoring.
 
