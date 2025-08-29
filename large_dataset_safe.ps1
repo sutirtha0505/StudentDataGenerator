@@ -61,10 +61,8 @@ java -Xmx"$($recommendedHeap)g" `
      -Xms"$([math]::Floor($recommendedHeap/2))g" `
      -XX:+UseG1GC `
      -XX:MaxGCPauseMillis=200 `
-     -XX:+UnlockExperimentalVMOptions `
      -XX:+UseStringDeduplication `
-     -XX:+PrintGCDetails `
-     -XX:+PrintGCTimeStamps `
+     -Xlog:gc*:gc.log:time `
      -cp "dependencies\*;." Main
 
 # Check exit status
