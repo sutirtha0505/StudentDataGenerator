@@ -207,6 +207,8 @@ public class Main {
         batchProcessingActive = true;
         executorService.submit(() -> {
             java.util.List<StudentData> batch = new java.util.ArrayList<>();
+            int consecutiveErrors = 0;
+            int maxConsecutiveErrors = 10;
             
             while (batchProcessingActive || !studentBatchQueue.isEmpty()) {
                 try {
@@ -218,19 +220,45 @@ public class Main {
                         
                         // Process batch when it reaches the size limit or we have a timeout
                         if (batch.size() >= BATCH_SIZE) {
-                            processBatch(batch);
-                            batch.clear();
+                            try {
+                                processBatch(batch);
+                                batch.clear();
+                                consecutiveErrors = 0; // Reset error counter on success
+                            } catch (Exception e) {
+                                consecutiveErrors++;
+                                System.err.println("Batch processing error (attempt " + consecutiveErrors + "/" + maxConsecutiveErrors + "): " + e.getMessage());
+                                
+                                if (consecutiveErrors >= maxConsecutiveErrors) {
+                                    System.err.println("CRITICAL: Too many consecutive batch processing errors. Stopping batch processor.");
+                                    System.err.println("Current batch size: " + batch.size() + " students");
+                                    System.err.println("Queue size: " + studentBatchQueue.size() + " students");
+                                    batchProcessingActive = false;
+                                    break;
+                                }
+                                
+                                // Wait before retry
+                                Thread.sleep(2000 * consecutiveErrors);
+                            }
                         }
                     } else if (!batch.isEmpty()) {
                         // Process remaining batch after timeout (for final cleanup)
-                        processBatch(batch);
-                        batch.clear();
+                        try {
+                            processBatch(batch);
+                            batch.clear();
+                            consecutiveErrors = 0;
+                        } catch (Exception e) {
+                            System.err.println("Error processing final batch: " + e.getMessage());
+                        }
                     }
                     
                 } catch (InterruptedException e) {
                     // Process any remaining batch before exiting
                     if (!batch.isEmpty()) {
-                        processBatch(batch);
+                        try {
+                            processBatch(batch);
+                        } catch (Exception ex) {
+                            System.err.println("Error processing batch during shutdown: " + ex.getMessage());
+                        }
                     }
                     Thread.currentThread().interrupt();
                     break;
@@ -954,6 +982,28 @@ public class Main {
         System.out.println("Students per Section: " + studentsPerSection);
         System.out.println("Total Students per School: " + totalStudentsPerSchool);
         System.out.println("Total Students Across All Schools: " + totalStudents);
+        
+        // Dataset size warnings and recommendations
+        if (totalStudents > 10000000) {
+            System.out.println("\n*** LARGE DATASET WARNING ***");
+            System.out.println("You are about to generate " + String.format("%,d", totalStudents) + " students.");
+            System.out.println("This is a very large dataset that may require:");
+            System.out.println("  - High memory allocation: java -Xmx16g (or higher)");
+            System.out.println("  - Significant processing time: 30+ minutes");
+            System.out.println("  - Large database storage: 10+ GB disk space");
+            System.out.println("  - PostgreSQL tuning for high connection load");
+            System.out.println("\nRecommendation: Start with a smaller dataset for testing.");
+        } else if (totalStudents > 1000000) {
+            System.out.println("\n*** MEDIUM DATASET NOTICE ***");
+            System.out.println("Generating " + String.format("%,d", totalStudents) + " students.");
+            System.out.println("Estimated time: 10-20 minutes");
+            System.out.println("Recommended memory: java -Xmx8g");
+        } else if (totalStudents > 100000) {
+            System.out.println("\n*** DATASET INFO ***");
+            System.out.println("Generating " + String.format("%,d", totalStudents) + " students.");
+            System.out.println("Estimated time: 2-5 minutes");
+        }
+        
         System.out.println("=====================================\n");
         
         // Create database tables
@@ -1292,6 +1342,37 @@ public class Main {
         int currentRollNo = 1;
         
         for (int studentIndex = 0; studentIndex < totalStudents; studentIndex++) {
+            // Memory monitoring for large datasets
+            if (studentIndex % 10000 == 0) { // Check every 10,000 students
+                Runtime runtime = Runtime.getRuntime();
+                long usedMemory = runtime.totalMemory() - runtime.freeMemory();
+                long maxMemory = runtime.maxMemory();
+                double memoryUsagePercent = (usedMemory * 100.0) / maxMemory;
+                
+                if (memoryUsagePercent > 85) {
+                    System.out.printf("WARNING: Memory usage at %.1f%% (%s/%s). Running garbage collection...\n", 
+                        memoryUsagePercent, formatBytes(usedMemory), formatBytes(maxMemory));
+                    System.gc(); // Force garbage collection
+                    
+                    // Wait a bit for GC to complete
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    
+                    // Check memory again after GC
+                    usedMemory = runtime.totalMemory() - runtime.freeMemory();
+                    memoryUsagePercent = (usedMemory * 100.0) / maxMemory;
+                    
+                    if (memoryUsagePercent > 90) {
+                        System.err.printf("CRITICAL: Memory usage still at %.1f%% after GC. Consider increasing heap size with -Xmx flag.\n", memoryUsagePercent);
+                        System.err.println("Current student index: " + studentIndex + "/" + totalStudents);
+                        System.err.println("Recommendation: Use java -Xmx8g or higher for large datasets");
+                    }
+                }
+            }
+            
             // Generate unique name combination
             String fullName, firstName, lastName;
             int nameAttempts = 0;
