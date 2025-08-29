@@ -1,6 +1,8 @@
 import java.sql.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 
 public class Main {
     
@@ -9,30 +11,257 @@ public class Main {
     private static final String DB_USER = "postgres";
     private static final String DB_PASSWORD = "Sutirtha_05@Postgress"; // Change this to your PostgreSQL password
     
-    // Thread pool for database operations - single thread for large datasets
-    private static ExecutorService executorService = Executors.newFixedThreadPool(1);
+    // Connection pool for database operations
+    private static HikariDataSource dataSource;
+    
+    // Thread pool for database operations - increased from single thread
+    private static ExecutorService executorService = Executors.newFixedThreadPool(Math.min(10, Runtime.getRuntime().availableProcessors()));
     private static AtomicInteger processedStudents = new AtomicInteger(0);
     private static AtomicInteger processedSchools = new AtomicInteger(0);
     private static volatile boolean processingComplete = false;
     
-    // Method to establish database connection with timeout
-    private static Connection getConnection() throws SQLException {
-        try {
-            Class.forName("org.postgresql.Driver");
-        } catch (ClassNotFoundException e) {
-            throw new SQLException("PostgreSQL JDBC Driver not found", e);
+    // Batch processing configuration
+    private static final int BATCH_SIZE = 1000; // Process students in batches of 1000
+    private static final java.util.concurrent.BlockingQueue<StudentData> studentBatchQueue = new LinkedBlockingQueue<>();
+    private static volatile boolean batchProcessingActive = false;
+    
+    // Memory-efficient LRU cache for tracking used values
+    private static final int MAX_CACHE_SIZE = 100000; // Limit cache size to prevent memory exhaustion
+    
+    // Simple LRU Cache implementation
+    static class LRUCache<T> {
+        private final int maxSize;
+        private final java.util.LinkedHashMap<T, Boolean> cache;
+        
+        public LRUCache(int maxSize) {
+            this.maxSize = maxSize;
+            this.cache = new java.util.LinkedHashMap<T, Boolean>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(java.util.Map.Entry<T, Boolean> eldest) {
+                    return size() > LRUCache.this.maxSize;
+                }
+            };
         }
         
-        // Set connection timeout properties for large datasets
-        java.util.Properties props = new java.util.Properties();
-        props.setProperty("user", DB_USER);
-        props.setProperty("password", DB_PASSWORD);
-        props.setProperty("loginTimeout", "10");
-        props.setProperty("socketTimeout", "30");
-        props.setProperty("connectTimeout", "10");
-        props.setProperty("tcpKeepAlive", "true");
+        public synchronized boolean contains(T key) {
+            return cache.containsKey(key);
+        }
         
-        return DriverManager.getConnection(DB_URL, props);
+        public synchronized void add(T key) {
+            cache.put(key, Boolean.TRUE);
+        }
+        
+        public synchronized int size() {
+            return cache.size();
+        }
+    }
+    
+    // Method to initialize database connection pool
+    private static void initializeConnectionPool() {
+        try {
+            HikariConfig config = new HikariConfig();
+            config.setJdbcUrl(DB_URL);
+            config.setUsername(DB_USER);
+            config.setPassword(DB_PASSWORD);
+            config.setDriverClassName("org.postgresql.Driver");
+            
+            // Connection pool settings for large datasets
+            config.setMaximumPoolSize(20); // Maximum connections in pool
+            config.setMinimumIdle(5);      // Minimum idle connections
+            config.setConnectionTimeout(60000);     // 60 seconds (increased from 10)
+            config.setIdleTimeout(300000);          // 5 minutes
+            config.setMaxLifetime(1800000);         // 30 minutes
+            config.setLeakDetectionThreshold(60000); // 1 minute
+            
+            // Performance settings
+            config.addDataSourceProperty("socketTimeout", "300"); // 5 minutes (increased from 30 seconds)
+            config.addDataSourceProperty("loginTimeout", "60");   // 60 seconds (increased from 10)
+            config.addDataSourceProperty("connectTimeout", "30"); // 30 seconds (increased from 10)
+            config.addDataSourceProperty("tcpKeepAlive", "true");
+            config.addDataSourceProperty("prepareThreshold", "1"); // Enable prepared statement caching
+            config.addDataSourceProperty("preparedStatementCacheQueries", "256");
+            config.addDataSourceProperty("preparedStatementCacheSizeMiB", "5");
+            
+            dataSource = new HikariDataSource(config);
+            System.out.println("Connection pool initialized successfully with " + config.getMaximumPoolSize() + " max connections");
+            
+        } catch (Exception e) {
+            System.err.println("Failed to initialize connection pool: " + e.getMessage());
+            throw new RuntimeException(e);
+        }
+    }
+    
+    // Method to establish database connection from pool
+    private static Connection getConnection() throws SQLException {
+        if (dataSource == null) {
+            initializeConnectionPool();
+        }
+        return dataSource.getConnection();
+    }
+    
+    // Method to close connection pool (call at end of program)
+    private static void closeConnectionPool() {
+        if (dataSource != null && !dataSource.isClosed()) {
+            dataSource.close();
+            System.out.println("Connection pool closed successfully");
+        }
+    }
+    
+    // Method to start batch processor
+    private static void startBatchProcessor() {
+        batchProcessingActive = true;
+        executorService.submit(() -> {
+            java.util.List<StudentData> batch = new java.util.ArrayList<>();
+            
+            while (batchProcessingActive || !studentBatchQueue.isEmpty()) {
+                try {
+                    // Try to get a student with timeout
+                    StudentData student = studentBatchQueue.poll(1, TimeUnit.SECONDS);
+                    
+                    if (student != null) {
+                        batch.add(student);
+                        
+                        // Process batch when it reaches the size limit or we have a timeout
+                        if (batch.size() >= BATCH_SIZE) {
+                            processBatch(batch);
+                            batch.clear();
+                        }
+                    } else if (!batch.isEmpty()) {
+                        // Process remaining batch after timeout (for final cleanup)
+                        processBatch(batch);
+                        batch.clear();
+                    }
+                    
+                } catch (InterruptedException e) {
+                    // Process any remaining batch before exiting
+                    if (!batch.isEmpty()) {
+                        processBatch(batch);
+                    }
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            
+            // Process any final remaining batch
+            if (!batch.isEmpty()) {
+                processBatch(batch);
+            }
+            
+            System.out.println("Batch processor stopped");
+        });
+    }
+    
+    // Method to stop batch processor
+    private static void stopBatchProcessor() {
+        batchProcessingActive = false;
+    }
+    
+    // Method to process a batch of students
+    private static void processBatch(java.util.List<StudentData> students) {
+        if (students.isEmpty()) return;
+        
+        // Group students by table (school)
+        java.util.Map<String, java.util.List<StudentData>> groupedBySchool = new java.util.HashMap<>();
+        for (StudentData student : students) {
+            String tableName = getStudentTableName(student.schoolName);
+            groupedBySchool.computeIfAbsent(tableName, k -> new java.util.ArrayList<>()).add(student);
+        }
+        
+        // Process each school's students in a batch
+        for (java.util.Map.Entry<String, java.util.List<StudentData>> entry : groupedBySchool.entrySet()) {
+            String tableName = entry.getKey();
+            java.util.List<StudentData> schoolStudents = entry.getValue();
+            insertStudentBatch(tableName, schoolStudents);
+        }
+    }
+    
+    // Method to insert a batch of students for a specific school
+    private static void insertStudentBatch(String tableName, java.util.List<StudentData> students) {
+        String sql = String.format("""
+            INSERT INTO %s (student_uuid, full_name, guardian_name, gender, blood_group, 
+            birth_date, aadhar_card, class_name, section, roll_no, religion, 
+            parent_occupation, concession_needed, concession_type, medical_condition, 
+            student_phone, guardian_phone, image_url, stream) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, tableName);
+        
+        int maxRetries = 3;
+        int retryCount = 0;
+        
+        while (retryCount < maxRetries) {
+            try (Connection conn = getConnection();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                
+                // Disable auto-commit for batch processing
+                conn.setAutoCommit(false);
+                
+                for (StudentData student : students) {
+                    pstmt.setObject(1, java.util.UUID.fromString(student.studentUUID));
+                    pstmt.setString(2, student.fullName);
+                    pstmt.setString(3, student.guardianName);
+                    pstmt.setString(4, student.gender);
+                    pstmt.setString(5, student.bloodGroup);
+                    pstmt.setDate(6, parseDate(student.birthDate));
+                    pstmt.setString(7, student.aadharNumber);
+                    pstmt.setString(8, student.className);
+                    pstmt.setString(9, student.section);
+                    pstmt.setInt(10, student.rollNo);
+                    pstmt.setString(11, student.religion);
+                    pstmt.setString(12, student.parentOccupation);
+                    pstmt.setBoolean(13, student.concessionNeeded.equals("Yes"));
+                    pstmt.setString(14, student.concessionType.equals("N/A") ? null : student.concessionType);
+                    pstmt.setString(15, student.medicalCondition.equals("None") ? null : student.medicalCondition);
+                    pstmt.setString(16, student.studentPhone);
+                    pstmt.setString(17, student.guardianPhone);
+                    pstmt.setString(18, student.imageUrl);
+                    pstmt.setString(19, student.stream);
+                    
+                    pstmt.addBatch();
+                }
+                
+                // Execute the batch
+                int[] results = pstmt.executeBatch();
+                conn.commit();
+                
+                // Update processed count
+                int processed = processedStudents.addAndGet(results.length);
+                
+                // Show progress every 1000 students for large datasets, 100 for smaller ones
+                int progressInterval = processed > 1000000 ? 1000 : 100;
+                if (processed % progressInterval == 0) {
+                    System.out.println("Students processed: " + processed);
+                }
+                
+                return; // Success, exit retry loop
+                
+            } catch (SQLException e) {
+                retryCount++;
+                if (retryCount >= maxRetries) {
+                    System.err.println("Failed to insert batch of " + students.size() + " students after " + maxRetries + " attempts: " + e.getMessage());
+                    // Skip this batch and continue with next one
+                    return;
+                } else {
+                    System.err.println("Batch insert failed, retrying... (" + retryCount + "/" + maxRetries + ")");
+                    try {
+                        Thread.sleep(1000 * retryCount); // Exponential backoff
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Method to queue student for batch processing
+    private static void queueStudentForBatch(StudentData student) {
+        try {
+            studentBatchQueue.put(student);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            // Fall back to individual insertion if queue is interrupted
+            insertStudent(student);
+        }
     }
     
     // Method to create database tables
@@ -240,8 +469,9 @@ public class Main {
     }
     
     // Method to generate unique Indian phone numbers
-    private static String generateUniquePhoneNumber(java.util.Set<String> usedNumbers) {
+    private static String generateUniquePhoneNumber(LRUCache<String> usedNumbers) {
         String phoneNumber;
+        int attempts = 0;
         do {
             // Generate 10 digit number starting with 6, 7, 8, or 9
             int firstDigit = 6 + (int) (Math.random() * 4); // Random number between 6-9
@@ -253,6 +483,12 @@ public class Main {
             }
             
             phoneNumber = number.toString();
+            attempts++;
+            
+            // Prevent infinite loops in case cache is full
+            if (attempts > 1000) {
+                break;
+            }
         } while (usedNumbers.contains(phoneNumber));
         
         usedNumbers.add(phoneNumber);
@@ -547,8 +783,9 @@ public class Main {
     }
     
     // Method to generate Aadhar card number
-    private static String generateAadharNumber(java.util.Set<String> usedAadhars) {
+    private static String generateAadharNumber(LRUCache<String> usedAadhars) {
         String aadharNumber;
+        int attempts = 0;
         do {
             StringBuilder aadhar = new StringBuilder();
             // Generate 12 digit number
@@ -556,6 +793,12 @@ public class Main {
                 aadhar.append((int) (Math.random() * 10));
             }
             aadharNumber = aadhar.toString();
+            attempts++;
+            
+            // Prevent infinite loops in case cache is full
+            if (attempts > 1000) {
+                break;
+            }
         } while (usedAadhars.contains(aadharNumber));
         
         usedAadhars.add(aadharNumber);
@@ -566,6 +809,16 @@ public class Main {
     public static void main(String[] args) {
         java.util.Scanner scanner = new java.util.Scanner(System.in);
         
+        // Initialize connection pool first
+        System.out.println("=== INITIALIZING DATABASE CONNECTION POOL ===");
+        try {
+            initializeConnectionPool();
+        } catch (Exception e) {
+            System.err.println("Failed to initialize connection pool: " + e.getMessage());
+            scanner.close();
+            return;
+        }
+        
         // Database connection test
         System.out.println("=== TESTING DATABASE CONNECTION ===");
         try (Connection conn = getConnection()) {
@@ -573,6 +826,7 @@ public class Main {
         } catch (SQLException e) {
             System.err.println("Database connection failed: " + e.getMessage());
             System.err.println("Please make sure PostgreSQL is running and credentials are correct.");
+            closeConnectionPool();
             scanner.close();
             return;
         }
@@ -875,18 +1129,23 @@ public class Main {
                 "Vora", "Vyas", "Wagh", "Waghmare", "Wagle", "Warrier", "Wilson", "Yadav", "Yajnik", "Yash",
                 "Zaveri", "Zutshi"
         };
-        // Set to track used phone numbers and Aadhar numbers
-        java.util.Set<String> usedPhoneNumbers = new java.util.HashSet<>();
-        java.util.Set<String> usedAadhars = new java.util.HashSet<>();
-        java.util.Set<String> usedNameCombinations = new java.util.HashSet<>();
+        // Memory-efficient LRU caches to track used values (prevents memory exhaustion)
+        LRUCache<String> usedPhoneNumbers = new LRUCache<>(MAX_CACHE_SIZE);
+        LRUCache<String> usedAadhars = new LRUCache<>(MAX_CACHE_SIZE);
+        LRUCache<String> usedNameCombinations = new LRUCache<>(MAX_CACHE_SIZE);
         
         System.out.println("=== GENERATING AND SAVING STUDENT DATA ===");
         System.out.println("Total students to generate: " + totalStudents);
+        System.out.println("Using memory-efficient LRU caches (max " + MAX_CACHE_SIZE + " entries each) to prevent memory exhaustion");
+        
+        // Start batch processor for efficient database operations
+        System.out.println("Starting batch processor for efficient database operations...");
+        startBatchProcessor();
         
         // For very large datasets (>1M students), use synchronous processing
         boolean useSyncProcessing = totalStudents > 1000000;
         if (useSyncProcessing) {
-            System.out.println("Large dataset detected (>1M students). Using synchronous processing for stability.");
+            System.out.println("Large dataset detected (>1M students). Using batch processing for optimal performance.");
             System.out.println("Progress will be shown every 1000 students...\n");
         } else {
             System.out.println("Progress will be shown every 100 students...\n");
@@ -905,7 +1164,7 @@ public class Main {
                         // Check if processing is stuck
                         if (current == lastReported) {
                             stuckCounter++;
-                            if (stuckCounter > 10) { // If stuck for 30 seconds
+                            if (stuckCounter > 100) { // If stuck for 5 minutes (increased from 30 seconds)
                                 System.out.println("WARNING: Processing appears stuck at " + current + " students");
                                 System.out.println("This may be due to database connection issues with large datasets");
                                 break;
@@ -937,10 +1196,17 @@ public class Main {
         for (int studentIndex = 0; studentIndex < totalStudents; studentIndex++) {
             // Generate unique name combination
             String fullName, firstName, lastName;
+            int nameAttempts = 0;
             do {
                 firstName = firstNames[(int) (Math.random() * firstNames.length)];
                 lastName = lastNames[(int) (Math.random() * lastNames.length)];
                 fullName = firstName + " " + lastName;
+                nameAttempts++;
+                
+                // Prevent infinite loops in case cache is full
+                if (nameAttempts > 1000) {
+                    break;
+                }
             } while (usedNameCombinations.contains(fullName));
             
             usedNameCombinations.add(fullName);
@@ -1003,26 +1269,13 @@ public class Main {
                 studentPhone, guardianPhone, imageUrl, studentStream
             );
             
-            // Choose processing method based on dataset size
-            if (useSyncProcessing) {
-                // For large datasets, use synchronous processing to avoid database overload
-                insertStudent(student);
-            } else {
-                // For smaller datasets, use asynchronous processing
-                executorService.submit(() -> insertStudent(student));
-            }
+            // Use batch processing for all dataset sizes (more efficient)
+            queueStudentForBatch(student);
             
-            // Add delay for large datasets to prevent database overload
-            if (useSyncProcessing && (studentIndex + 1) % 100 == 0) {
+            // Reduced delays since batch processing is more efficient
+            if ((studentIndex + 1) % 1000 == 0) {
                 try {
-                    Thread.sleep(10); // Small pause every 100 students for large datasets
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            } else if (!useSyncProcessing && (studentIndex + 1) % 1000 == 0) {
-                try {
-                    Thread.sleep(100); // Longer pause every 1000 students for async processing
+                    Thread.sleep(10); // Small pause every 1000 students to prevent overwhelming the queue
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
@@ -1046,6 +1299,17 @@ public class Main {
                     }
                 }
             }
+        }
+
+        // Stop batch processor and wait for all batches to complete
+        System.out.println("\n=== STOPPING BATCH PROCESSOR ===");
+        stopBatchProcessor();
+        
+        // Wait a bit for final batches to process
+        try {
+            Thread.sleep(5000); // Wait 5 seconds for final batch processing
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
 
         // Signal processing completion and wait for all tasks
@@ -1182,6 +1446,10 @@ public class Main {
         
         System.out.println("\n=== ACADEMIC RESULTS GENERATION COMPLETE ===");
         System.out.println("Academic tables created with format: {school}_class_{class}_{year}");
+        
+        // Close connection pool and scanner
+        closeConnectionPool();
+        scanner.close();
     }
     
     // Method to get Class 10 fixed subjects
