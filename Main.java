@@ -14,8 +14,12 @@ public class Main {
     // Connection pool for database operations
     private static HikariDataSource dataSource;
     
-    // Thread pool for database operations - increased from single thread
-    private static ExecutorService executorService = Executors.newFixedThreadPool(Math.min(10, Runtime.getRuntime().availableProcessors()));
+    // System hardware detection and thread allocation
+    private static int systemCores;
+    private static int optimalThreadCount;
+    
+    // Thread pool for database operations - dynamically allocated based on system specs
+    private static ExecutorService executorService;
     private static AtomicInteger processedStudents = new AtomicInteger(0);
     private static AtomicInteger processedSchools = new AtomicInteger(0);
     private static volatile boolean processingComplete = false;
@@ -56,6 +60,71 @@ public class Main {
         }
     }
     
+    // Method to detect system hardware and initialize optimal thread allocation
+    private static void initializeSystemDetectionAndThreadPool() {
+        System.out.println("=== SYSTEM HARDWARE DETECTION ===");
+        
+        // Get system cores (physical + logical)
+        systemCores = Runtime.getRuntime().availableProcessors();
+        
+        // Get additional system information
+        String osName = System.getProperty("os.name");
+        String osVersion = System.getProperty("os.version");
+        String javaVersion = System.getProperty("java.version");
+        String javaVendor = System.getProperty("java.vendor");
+        
+        System.out.println("System Information:");
+        System.out.println("  Operating System: " + osName + " " + osVersion);
+        System.out.println("  Java Version: " + javaVersion + " (" + javaVendor + ")");
+        System.out.println("  CPU Cores detected: " + systemCores);
+        
+        // For this application, we'll use a conservative approach:
+        // - For CPU-bound tasks: use number of cores
+        // - For I/O-bound tasks (database operations): use cores * 2
+        // - Cap at reasonable maximum to prevent resource exhaustion
+        
+        // Database operations are I/O-bound, so we can use more threads than cores
+        int maxThreads = systemCores * 2;
+        
+        // Set reasonable bounds: minimum 2, maximum 50
+        optimalThreadCount = Math.max(2, Math.min(maxThreads, 50));
+        
+        // Initialize the thread pool with optimal count
+        executorService = Executors.newFixedThreadPool(optimalThreadCount);
+        
+        System.out.println("Thread Allocation:");
+        System.out.println("  Strategy: I/O-bound (database operations)");
+        System.out.println("  Optimal thread count: " + optimalThreadCount);
+        System.out.println("  Thread pool initialized with " + optimalThreadCount + " threads");
+        
+        // Additional system information
+        long maxMemory = Runtime.getRuntime().maxMemory();
+        long totalMemory = Runtime.getRuntime().totalMemory();
+        long freeMemory = Runtime.getRuntime().freeMemory();
+        
+        System.out.println("Memory Information:");
+        System.out.println("  Max Memory: " + formatBytes(maxMemory));
+        System.out.println("  Total Memory: " + formatBytes(totalMemory));
+        System.out.println("  Free Memory: " + formatBytes(freeMemory));
+        System.out.println("=====================================");
+    }
+    
+    // Helper method to format bytes in human-readable format
+    private static String formatBytes(long bytes) {
+        if (bytes == Long.MAX_VALUE) return "Unlimited";
+        
+        String[] units = {"B", "KB", "MB", "GB", "TB"};
+        int unitIndex = 0;
+        double size = bytes;
+        
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex++;
+        }
+        
+        return String.format("%.2f %s", size, units[unitIndex]);
+    }
+    
     // Method to initialize database connection pool
     private static void initializeConnectionPool() {
         try {
@@ -65,13 +134,22 @@ public class Main {
             config.setPassword(DB_PASSWORD);
             config.setDriverClassName("org.postgresql.Driver");
             
-            // Connection pool settings for large datasets
-            config.setMaximumPoolSize(20); // Maximum connections in pool
-            config.setMinimumIdle(5);      // Minimum idle connections
+            // Dynamic connection pool settings based on system capabilities
+            // Generally, connection pool size should be slightly larger than thread count
+            int maxPoolSize = Math.max(optimalThreadCount + 5, 10); // At least 10, or threads + 5
+            int minIdle = Math.max(optimalThreadCount / 4, 2);       // 25% of threads, minimum 2
+            
+            config.setMaximumPoolSize(maxPoolSize);
+            config.setMinimumIdle(minIdle);
             config.setConnectionTimeout(60000);     // 60 seconds (increased from 10)
             config.setIdleTimeout(300000);          // 5 minutes
             config.setMaxLifetime(1800000);         // 30 minutes
             config.setLeakDetectionThreshold(60000); // 1 minute
+            
+            System.out.println("Connection pool configured dynamically:");
+            System.out.println("  Maximum connections: " + maxPoolSize);
+            System.out.println("  Minimum idle connections: " + minIdle);
+            System.out.println("  Ratio: " + String.format("%.1f", (double)maxPoolSize / optimalThreadCount) + " connections per thread");
             
             // Performance settings
             config.addDataSourceProperty("socketTimeout", "300"); // 5 minutes (increased from 30 seconds)
@@ -99,11 +177,28 @@ public class Main {
         return dataSource.getConnection();
     }
     
-    // Method to close connection pool (call at end of program)
+    // Method to close connection pool and executor service (call at end of program)
     private static void closeConnectionPool() {
         if (dataSource != null && !dataSource.isClosed()) {
             dataSource.close();
             System.out.println("Connection pool closed successfully");
+        }
+        
+        if (executorService != null && !executorService.isShutdown()) {
+            executorService.shutdown();
+            try {
+                // Wait for existing tasks to complete
+                if (!executorService.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS)) {
+                    executorService.shutdownNow();
+                    System.out.println("Executor service force shutdown");
+                } else {
+                    System.out.println("Executor service closed successfully");
+                }
+            } catch (InterruptedException e) {
+                executorService.shutdownNow();
+                Thread.currentThread().interrupt();
+                System.out.println("Executor service shutdown interrupted");
+            }
         }
     }
     
@@ -809,7 +904,10 @@ public class Main {
     public static void main(String[] args) {
         java.util.Scanner scanner = new java.util.Scanner(System.in);
         
-        // Initialize connection pool first
+        // Initialize system detection and thread pool first
+        initializeSystemDetectionAndThreadPool();
+        
+        // Initialize connection pool
         System.out.println("=== INITIALIZING DATABASE CONNECTION POOL ===");
         try {
             initializeConnectionPool();
@@ -1360,8 +1458,49 @@ public class Main {
         
         // Generate Academic Results after student data generation is complete
         System.out.println("\n=== GENERATING ACADEMIC RESULTS ===");
-        generateAcademicResults(scanner, schoolNames);
         
+        // Always ask the user if they want to generate academic results
+        System.out.print("Do you want to generate academic results? (y/n) [Press Enter for automatic]: ");
+        
+        try {
+            // Use a timeout to detect if user provides input
+            String response = "";
+            boolean inputProvided = false;
+            
+            // Check if input is available within a reasonable timeout
+            long startTime = System.currentTimeMillis();
+            long timeoutMs = 5000; // 5 seconds timeout
+            
+            while ((System.currentTimeMillis() - startTime) < timeoutMs) {
+                if (System.in.available() > 0) {
+                    response = scanner.nextLine().trim().toLowerCase();
+                    inputProvided = true;
+                    break;
+                }
+                Thread.sleep(100);
+            }
+            
+            if (inputProvided) {
+                if (response.equals("y") || response.equals("yes")) {
+                    System.out.println("Generating academic results with custom configuration...");
+                    generateAcademicResults(scanner, schoolNames);
+                } else if (response.equals("n") || response.equals("no")) {
+                    System.out.println("Academic results generation skipped by user.");
+                } else {
+                    System.out.println("Invalid input. Generating academic results automatically...");
+                    generateAutomaticAcademicResults(numClasses, schoolNames);
+                }
+            } else {
+                System.out.println("\nNo input provided within 5 seconds. Generating academic results automatically...");
+                generateAutomaticAcademicResults(numClasses, schoolNames);
+            }
+        } catch (Exception e) {
+            System.out.println("Error during input detection. Generating academic results automatically...");
+            generateAutomaticAcademicResults(numClasses, schoolNames);
+        }
+        
+        // Close connection pool before closing scanner
+        closeConnectionPool();
         scanner.close();
     }
     
@@ -1369,16 +1508,17 @@ public class Main {
     private static void generateAcademicResults(java.util.Scanner scanner, java.util.List<String> schoolNames) {
         System.out.println("Now generating academic results for all students...\n");
         
-        // Get user input for academic structure
-        System.out.print("Enter the classes for which you want to generate results (e.g., '1-3' or '6-8'): ");
-        String classRange = scanner.next();
-        
-        // Parse class range
-        java.util.List<Integer> classes = parseClassRange(classRange);
-        System.out.println("Selected classes: " + classes);
-        
-        System.out.print("Enter number of terms per year: ");
-        int numTerms = scanner.nextInt();
+        try {
+            // Get user input for academic structure
+            System.out.print("Enter the classes for which you want to generate results (e.g., '1-3' or '6-8'): ");
+            String classRange = scanner.next();
+            
+            // Parse class range
+            java.util.List<Integer> classes = parseClassRange(classRange);
+            System.out.println("Selected classes: " + classes);
+            
+            System.out.print("Enter number of terms per year: ");
+            int numTerms = scanner.nextInt();
         
         // Handle different subject combinations based on classes
         java.util.Map<Integer, java.util.List<SubjectInfo>> classSubjects = new java.util.HashMap<>();
@@ -1447,9 +1587,140 @@ public class Main {
         System.out.println("\n=== ACADEMIC RESULTS GENERATION COMPLETE ===");
         System.out.println("Academic tables created with format: {school}_class_{class}_{year}");
         
-        // Close connection pool and scanner
-        closeConnectionPool();
-        scanner.close();
+        } catch (java.util.NoSuchElementException e) {
+            System.out.println("\n=== INPUT ERROR ===");
+            System.out.println("No more input available for academic results generation.");
+            System.out.println("Academic results generation skipped.");
+        } catch (Exception e) {
+            System.out.println("\n=== ERROR IN ACADEMIC RESULTS GENERATION ===");
+            System.out.println("Error: " + e.getMessage());
+            System.out.println("Academic results generation skipped.");
+        }
+    }
+    
+    // Method to generate academic results automatically using school structure parameters
+    private static void generateAutomaticAcademicResults(int numClasses, java.util.List<String> schoolNames) {
+        System.out.println("Automatically generating academic results for all " + numClasses + " classes...");
+        
+        try {
+            // Use default configuration for automatic generation
+            String classRange = "1-" + numClasses; // Generate for all classes from 1 to numClasses
+            int numTerms = 3; // Default to 3 terms per year
+            int sessionYear = 2025; // Current session year
+            
+            System.out.println("Configuration:");
+            System.out.println("  Class Range: " + classRange + " (all classes in school structure)");
+            System.out.println("  Terms per Year: " + numTerms);
+            System.out.println("  Session Year: " + sessionYear);
+            
+            // Parse class range
+            java.util.List<Integer> classes = parseClassRange(classRange);
+            System.out.println("Selected classes: " + classes);
+            
+            // Handle different subject combinations based on classes
+            java.util.Map<Integer, java.util.List<SubjectInfo>> classSubjects = new java.util.HashMap<>();
+            
+            for (int currentClass : classes) {
+                if (currentClass <= 9) {
+                    // For classes 1-9, use automated subject configuration
+                    if (!classSubjects.containsKey(currentClass)) {
+                        System.out.println("Auto-configuring subjects for Class " + currentClass);
+                        java.util.List<SubjectInfo> subjects = getAutomatedSubjects(currentClass);
+                        classSubjects.put(currentClass, subjects);
+                        System.out.println("Class " + currentClass + " subjects: " + subjects.size() + " subjects configured");
+                    }
+                } else if (currentClass == 10) {
+                    // For class 10, use fixed board exam subjects
+                    if (!classSubjects.containsKey(currentClass)) {
+                        System.out.println("Auto-configuring Class 10 board exam subjects");
+                        java.util.List<SubjectInfo> subjects = getAutomatedClass10Subjects();
+                        classSubjects.put(currentClass, subjects);
+                        System.out.println("Class 10 subjects: " + subjects.size() + " subjects configured (board exam)");
+                    }
+                } else if (currentClass >= 11 && currentClass <= 12) {
+                    // For classes 11-12, use automated higher secondary configuration
+                    if (!classSubjects.containsKey(currentClass)) {
+                        System.out.println("Auto-configuring Class " + currentClass + " higher secondary subjects");
+                        java.util.List<SubjectInfo> subjects = getAutomatedHigherSecondarySubjects();
+                        classSubjects.put(currentClass, subjects);
+                        System.out.println("Class " + currentClass + " subjects: " + subjects.size() + " subjects configured (higher secondary)");
+                    }
+                }
+            }
+            
+            // Generate academic data for each school and class
+            System.out.println("\n=== GENERATING ACADEMIC DATA ===");
+            int totalTables = schoolNames.size() * classes.size();
+            int processedTables = 0;
+            
+            for (String schoolName : schoolNames) {
+                System.out.println("Processing school: " + schoolName);
+                
+                for (int currentClass : classes) {
+                    processedTables++;
+                    System.out.println("  Generating academic data for Class " + currentClass + " (" + processedTables + "/" + totalTables + ")");
+                    
+                    java.util.List<SubjectInfo> subjects = classSubjects.get(currentClass);
+                    boolean isBoardExam = (currentClass == 10 || currentClass == 12);
+                    
+                    // Create academic table
+                    createAcademicTable(schoolName, currentClass, sessionYear, subjects, numTerms, isBoardExam);
+                    
+                    // Generate academic data
+                    generateAcademicData(schoolName, currentClass, sessionYear, subjects, numTerms, isBoardExam);
+                    
+                    // For board exam classes, also create board exam table
+                    if (isBoardExam) {
+                        System.out.println("  Creating board exam table for Class " + currentClass);
+                        createBoardExamTable(schoolName, currentClass, sessionYear, subjects, numTerms);
+                        generateBoardExamData(schoolName, currentClass, sessionYear, subjects, numTerms);
+                    }
+                }
+            }
+            
+            System.out.println("\n=== AUTOMATIC ACADEMIC RESULTS GENERATION COMPLETE ===");
+            System.out.println("Generated academic results for:");
+            System.out.println("  Schools: " + schoolNames.size());
+            System.out.println("  Classes: " + classes.size() + " (Classes " + classes.get(0) + " to " + classes.get(classes.size()-1) + ")");
+            System.out.println("  Terms per year: " + numTerms);
+            System.out.println("  Total academic tables: " + totalTables);
+            System.out.println("Academic tables created with format: {school}_class_{class}_{year}");
+            
+        } catch (Exception e) {
+            System.out.println("\n=== ERROR IN AUTOMATIC ACADEMIC RESULTS GENERATION ===");
+            System.out.println("Error: " + e.getMessage());
+            e.printStackTrace();
+            System.out.println("Automatic academic results generation failed, but student data is still available.");
+        }
+    }
+    
+    // Method to get automated Class 10 subjects
+    private static java.util.List<SubjectInfo> getAutomatedClass10Subjects() {
+        java.util.List<SubjectInfo> subjects = new java.util.ArrayList<>();
+        
+        // Standard Class 10 CBSE subjects
+        subjects.add(new SubjectInfo("Mathematics", 100));
+        subjects.add(new SubjectInfo("Science", 100));
+        subjects.add(new SubjectInfo("Social Science", 100));
+        subjects.add(new SubjectInfo("English", 100));
+        subjects.add(new SubjectInfo("Hindi", 100));
+        
+        return subjects;
+    }
+    
+    // Method to get automated higher secondary subjects  
+    private static java.util.List<SubjectInfo> getAutomatedHigherSecondarySubjects() {
+        java.util.List<SubjectInfo> subjects = new java.util.ArrayList<>();
+        
+        // Common higher secondary subjects (will be customized by stream in generation)
+        subjects.add(new SubjectInfo("English Core", 100));
+        subjects.add(new SubjectInfo("Mathematics", 100));
+        subjects.add(new SubjectInfo("Physics", 100));
+        subjects.add(new SubjectInfo("Chemistry", 100));
+        subjects.add(new SubjectInfo("Biology", 100));
+        subjects.add(new SubjectInfo("Computer Science", 100));
+        
+        return subjects;
     }
     
     // Method to get Class 10 fixed subjects
