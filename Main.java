@@ -1580,6 +1580,117 @@ public class Main {
             generateAutomaticAcademicResults(numClasses, schoolNames);
         }
         
+        // Generate Attendance Records after academic results
+        System.out.println("\n=== GENERATING ATTENDANCE RECORDS ===");
+        
+        // Always ask the user if they want to generate attendance records
+        System.out.print("Do you want to generate attendance records? (y/n) [Press Enter for automatic]: ");
+        
+        try {
+            // Use a timeout to detect if user provides input
+            String attendanceResponse = "";
+            boolean attendanceInputProvided = false;
+            
+            // Check if input is available within a reasonable timeout
+            long attendanceStartTime = System.currentTimeMillis();
+            long attendanceTimeoutMs = 5000; // 5 seconds timeout
+            
+            while ((System.currentTimeMillis() - attendanceStartTime) < attendanceTimeoutMs) {
+                if (System.in.available() > 0) {
+                    attendanceResponse = scanner.nextLine().trim().toLowerCase();
+                    attendanceInputProvided = true;
+                    break;
+                }
+                Thread.sleep(100);
+            }
+            
+            if (attendanceInputProvided) {
+                if (attendanceResponse.equals("y") || attendanceResponse.equals("yes")) {
+                    System.out.println("Generating attendance records with custom configuration...");
+                    generateAttendanceRecords(scanner, schoolNames, numClasses);
+                } else if (attendanceResponse.equals("n") || attendanceResponse.equals("no")) {
+                    System.out.println("Attendance records generation skipped by user.");
+                } else {
+                    System.out.println("Invalid input. Generating attendance records automatically...");
+                    generateAutomaticAttendanceRecords(numClasses, schoolNames);
+                }
+            } else {
+                System.out.println("\nNo input provided within 5 seconds. Generating attendance records automatically...");
+                generateAutomaticAttendanceRecords(numClasses, schoolNames);
+            }
+        } catch (Exception e) {
+            System.out.println("Error during attendance input detection. Generating attendance records automatically...");
+            generateAutomaticAttendanceRecords(numClasses, schoolNames);
+        }
+        
+        // Generate homework records
+        try {
+            System.out.print("\nDo you want to generate homework records? (y/n) [5 second timeout]: ");
+            String homeworkResponse = "";
+            boolean homeworkInputProvided = false;
+            
+            for (int i = 0; i < 50; i++) { // 5 seconds timeout
+                if (System.in.available() > 0) {
+                    homeworkResponse = scanner.nextLine().trim().toLowerCase();
+                    homeworkInputProvided = true;
+                    break;
+                }
+                Thread.sleep(100);
+            }
+            
+            if (homeworkInputProvided) {
+                if (homeworkResponse.equals("y") || homeworkResponse.equals("yes")) {
+                    System.out.println("Generating homework records with custom configuration...");
+                    generateHomeworkRecords(scanner, schoolNames, numClasses);
+                } else if (homeworkResponse.equals("n") || homeworkResponse.equals("no")) {
+                    System.out.println("Homework records generation skipped by user.");
+                } else {
+                    System.out.println("Invalid input. Generating homework records automatically...");
+                    generateAutomaticHomeworkRecords(numClasses, schoolNames);
+                }
+            } else {
+                System.out.println("\nNo input provided within 5 seconds. Generating homework records automatically...");
+                generateAutomaticHomeworkRecords(numClasses, schoolNames);
+            }
+        } catch (Exception e) {
+            System.out.println("Error during homework input detection. Generating homework records automatically...");
+            generateAutomaticHomeworkRecords(numClasses, schoolNames);
+        }
+        
+        // Generate project records
+        try {
+            System.out.print("\nDo you want to generate project records? (y/n) [5 second timeout]: ");
+            String projectResponse = "";
+            boolean projectInputProvided = false;
+            
+            for (int i = 0; i < 50; i++) { // 5 seconds timeout
+                if (System.in.available() > 0) {
+                    projectResponse = scanner.nextLine().trim().toLowerCase();
+                    projectInputProvided = true;
+                    break;
+                }
+                Thread.sleep(100);
+            }
+            
+            if (projectInputProvided) {
+                if (projectResponse.equals("y") || projectResponse.equals("yes")) {
+                    System.out.println("Generating project records with custom configuration...");
+                    generateProjectRecords(scanner, schoolNames, numClasses);
+                } else if (projectResponse.equals("n") || projectResponse.equals("no")) {
+                    System.out.println("Project records generation skipped by user.");
+                } else {
+                    System.out.println("Invalid input. Generating project records automatically...");
+                    generateAutomaticProjectRecords(numClasses, schoolNames);
+                }
+            } else {
+                System.out.println("\nNo input provided within 5 seconds. Generating project records automatically...");
+                generateAutomaticProjectRecords(numClasses, schoolNames);
+            }
+        } catch (Exception e) {
+            System.out.println("Error during project input detection. Generating project records automatically...");
+            generateAutomaticProjectRecords(numClasses, schoolNames);
+        }
+        
         // Close connection pool before closing scanner
         closeConnectionPool();
         scanner.close();
@@ -1666,7 +1777,7 @@ public class Main {
         }
         
         System.out.println("\n=== ACADEMIC RESULTS GENERATION COMPLETE ===");
-        System.out.println("Academic tables created with format: {school}_class_{class}_{year}");
+        System.out.println("Academic tables created with format: {school}_class_{class}_{year}_academic");
         
         } catch (java.util.NoSuchElementException e) {
             System.out.println("\n=== INPUT ERROR ===");
@@ -1765,7 +1876,7 @@ public class Main {
             System.out.println("  Classes: " + classes.size() + " (Classes " + classes.get(0) + " to " + classes.get(classes.size()-1) + ")");
             System.out.println("  Terms per year: " + numTerms);
             System.out.println("  Total academic tables: " + totalTables);
-            System.out.println("Academic tables created with format: {school}_class_{class}_{year}");
+            System.out.println("Academic tables created with format: {school}_class_{class}_{year}_academic");
             
         } catch (Exception e) {
             System.out.println("\n=== ERROR IN AUTOMATIC ACADEMIC RESULTS GENERATION ===");
@@ -1989,7 +2100,7 @@ public class Main {
                 .replaceAll("_{2,}", "_")
                 .replaceAll("^_|_$", "");
         
-        String tableName = sanitizedSchoolName + "_class_" + classNum + "_" + sessionYear;
+        String tableName = sanitizedSchoolName + "_class_" + classNum + "_" + sessionYear + "_academic";
         
         try (Connection conn = getConnection()) {
             if (classNum == 11 || classNum == 12) {
@@ -2129,7 +2240,7 @@ public class Main {
                 .replaceAll("_{2,}", "_")
                 .replaceAll("^_|_$", "");
         
-        String academicTableName = sanitizedSchoolName + "_class_" + classNum + "_" + sessionYear;
+        String academicTableName = sanitizedSchoolName + "_class_" + classNum + "_" + sessionYear + "_academic";
         String studentTableName = getStudentTableName(schoolName);
         
         try (Connection conn = getConnection()) {
@@ -2173,7 +2284,7 @@ public class Main {
                 .replaceAll("_{2,}", "_")
                 .replaceAll("^_|_$", "");
         
-        String boardTableName = sanitizedSchoolName + "_class_" + classNum + "_" + sessionYear + "_board_exam";
+        String boardTableName = sanitizedSchoolName + "_class_" + classNum + "_" + sessionYear + "_board_exam_academic";
         
         try (Connection conn = getConnection()) {
             if (classNum == 10) {
@@ -2279,7 +2390,7 @@ public class Main {
                 .replaceAll("_{2,}", "_")
                 .replaceAll("^_|_$", "");
         
-        String boardTableName = sanitizedSchoolName + "_class_" + classNum + "_" + sessionYear + "_board_exam";
+        String boardTableName = sanitizedSchoolName + "_class_" + classNum + "_" + sessionYear + "_board_exam_academic";
         String studentTableName = getStudentTableName(schoolName);
         
         try (Connection conn = getConnection()) {
@@ -2688,5 +2799,1137 @@ public class Main {
             default:
                 return new String[]{"Mathematics", "Physics", "Chemistry", "Biology"}; // Default to Science
         }
+    }
+    
+    // Method to generate attendance records for students (interactive)
+    private static void generateAttendanceRecords(java.util.Scanner scanner, java.util.List<String> schoolNames, int numClasses) {
+        System.out.println("Now generating attendance records for all students...\n");
+        
+        try {
+            System.out.print("Enter the classes for which you want to generate attendance (e.g., '1-12' or '6-8'): ");
+            String classRange = scanner.next();
+            
+            // Parse class range
+            java.util.List<Integer> classes = parseClassRange(classRange);
+            System.out.println("Selected classes: " + classes);
+            
+            generateAttendanceData(classes, schoolNames);
+            
+        } catch (java.util.NoSuchElementException e) {
+            System.out.println("\n=== INPUT ERROR ===");
+            System.out.println("No more input available for attendance generation.");
+            System.out.println("Attendance generation skipped.");
+        } catch (Exception e) {
+            System.out.println("\n=== ERROR IN ATTENDANCE GENERATION ===");
+            System.out.println("Error: " + e.getMessage());
+            System.out.println("Attendance generation skipped.");
+        }
+    }
+    
+    // Method to generate attendance records automatically
+    private static void generateAutomaticAttendanceRecords(int numClasses, java.util.List<String> schoolNames) {
+        System.out.println("Automatically generating attendance records for all " + numClasses + " classes...");
+        
+        try {
+            // Generate for all classes from 1 to numClasses
+            java.util.List<Integer> classes = new java.util.ArrayList<>();
+            for (int i = 1; i <= numClasses; i++) {
+                classes.add(i);
+            }
+            
+            generateAttendanceData(classes, schoolNames);
+            
+        } catch (Exception e) {
+            System.out.println("\n=== ERROR IN AUTOMATIC ATTENDANCE GENERATION ===");
+            System.out.println("Error: " + e.getMessage());
+            System.out.println("Attendance generation skipped.");
+        }
+    }
+    
+    // Method to generate attendance data for selected classes and schools
+    private static void generateAttendanceData(java.util.List<Integer> classes, java.util.List<String> schoolNames) {
+        int currentYear = 2025;
+        
+        System.out.println("=== ATTENDANCE GENERATION CONFIGURATION ===");
+        System.out.println("Logic: ALL students will have attendance records for years they were in school");
+        System.out.println("       For example, students currently in Class 5 will have attendance for:");
+        System.out.println("       2021 (when in Class 1), 2022 (Class 2), 2023 (Class 3),");
+        System.out.println("       2024 (Class 4), 2025 (Class 5)");
+        System.out.println("Attendance percentage: 20% to 100% per student");
+        System.out.println("Working days: Excludes weekends, national holidays, school breaks");
+        System.out.println("===============================================\n");
+        
+        // Process each school
+        for (String schoolName : schoolNames) {
+            System.out.println("Processing attendance records for: " + schoolName);
+            
+            // Determine all years that need attendance tables
+            // We need to generate attendance for all years from when the oldest current student was in Class 1
+            // up to the current year
+            int maxClass = classes.stream().mapToInt(Integer::intValue).max().orElse(12);
+            int earliestYear = currentYear - maxClass + 1;
+            
+            System.out.println("  Years to generate: " + earliestYear + " to " + currentYear);
+            
+            // Create attendance tables for all needed years
+            for (int year = earliestYear; year <= currentYear; year++) {
+                createAttendanceTable(schoolName, year);
+            }
+            
+            // Generate attendance data for each year (this will process ALL students for each year)
+            for (int year = earliestYear; year <= currentYear; year++) {
+                System.out.println("  Generating attendance for year " + year + "...");
+                generateAttendanceRecordsForYear(schoolName, year);
+            }
+        }
+        
+        System.out.println("\n=== ATTENDANCE RECORDS GENERATION COMPLETE ===");
+        System.out.println("Attendance tables created with format: {sanitized_school_name}_attendance_{year}");
+        System.out.println("Columns: attendance_id, student_uuid, attendance_date, status, arrival_time, departure_time, remarks, created_at");
+        System.out.println("Logic implemented: ALL students have attendance records for years they would have been in school");
+        System.out.println("Attendance rates: Randomly distributed between 20% and 100% per student");
+        System.out.println("Data volume: Each student will have ~200-250 attendance records per school year");
+    }
+    
+    // Method to create attendance table for a specific year
+    private static void createAttendanceTable(String schoolName, int year) {
+        String sanitizedSchoolName = schoolName.toLowerCase()
+                .replaceAll("[^a-zA-Z0-9]", "_")
+                .replaceAll("_{2,}", "_")
+                .replaceAll("^_|_$", "");
+        String tableName = sanitizedSchoolName + "_attendance_" + year;
+        
+        try (Connection conn = getConnection()) {
+            String createTableSQL = String.format("""
+                CREATE TABLE IF NOT EXISTS %s (
+                    attendance_id SERIAL PRIMARY KEY,
+                    student_uuid UUID NOT NULL,
+                    attendance_date DATE NOT NULL,
+                    status VARCHAR(20) NOT NULL CHECK (status IN ('Present', 'Absent', 'Late', 'Excused')),
+                    arrival_time TIME,
+                    departure_time TIME,
+                    remarks TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(student_uuid, attendance_date)
+                )
+                """, tableName);
+            
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute(createTableSQL);
+                System.out.println("    Attendance table created: " + tableName);
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error creating attendance table " + tableName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to generate attendance records for students in a specific year
+    private static void generateAttendanceRecordsForYear(String schoolName, int year) {
+        String sanitizedSchoolName = schoolName.toLowerCase()
+                .replaceAll("[^a-zA-Z0-9]", "_")
+                .replaceAll("_{2,}", "_")
+                .replaceAll("^_|_$", "");
+        String attendanceTableName = sanitizedSchoolName + "_attendance_" + year;
+        String studentTableName = getStudentTableName(schoolName);
+        
+        try {
+            int currentYear = 2025;
+            java.util.List<String[]> studentsToProcess = new java.util.ArrayList<>();
+            
+            // First, get the list of students to process
+            try (Connection conn = getConnection();
+                 PreparedStatement selectStmt = conn.prepareStatement("SELECT student_uuid, full_name, class_name FROM " + studentTableName);
+                 ResultSet rs = selectStmt.executeQuery()) {
+                
+                while (rs.next()) {
+                    String studentUuid = rs.getString("student_uuid");
+                    String studentName = rs.getString("full_name");
+                    String className = rs.getString("class_name");
+                    
+                    // Extract class number from "Class X" format
+                    int currentClass = Integer.parseInt(className.replace("Class ", ""));
+                    
+                    // Calculate what class this student was in during the attendance year
+                    int studentClassDuringYear = currentClass - (currentYear - year);
+                    
+                    // Only include students who would have been in school (Class 1 or higher) during that year
+                    if (studentClassDuringYear >= 1) {
+                        studentsToProcess.add(new String[]{studentUuid, studentName, String.valueOf(studentClassDuringYear)});
+                    }
+                }
+            }
+            
+            if (studentsToProcess.isEmpty()) {
+                System.out.println("    No students were in school during " + year + " for " + schoolName);
+                return;
+            }
+            
+            System.out.println("    Generating attendance records for " + studentsToProcess.size() + " students in year " + year);
+            System.out.println("      (Students who were in Classes 1-" + 
+                studentsToProcess.stream()
+                    .mapToInt(s -> Integer.parseInt(s[2]))
+                    .max().orElse(1) + " during " + year + ")");
+            
+            // Process students in batches to avoid connection leaks
+            int batchSize = 25; // Process 25 students per connection (attendance has more records per student)
+            for (int i = 0; i < studentsToProcess.size(); i += batchSize) {
+                int endIndex = Math.min(i + batchSize, studentsToProcess.size());
+                java.util.List<String[]> batch = studentsToProcess.subList(i, endIndex);
+                
+                // Use a new connection for each batch
+                try (Connection conn = getConnection()) {
+                    for (String[] studentData : batch) {
+                        String studentUuid = studentData[0];
+                        String studentName = studentData[1];
+                        // studentData[2] contains classDuringYear info (for reference only)
+                        
+                        generateStudentAttendanceForYear(conn, attendanceTableName, studentUuid, studentName, year);
+                    }
+                    
+                    // Report progress
+                    System.out.println("      Processed " + Math.min(endIndex, studentsToProcess.size()) + "/" + studentsToProcess.size() + " students for year " + year);
+                }
+            }
+            
+            System.out.println("    Completed attendance generation for " + studentsToProcess.size() + " students in year " + year);
+            
+        } catch (SQLException e) {
+            System.err.println("Error generating attendance records for " + schoolName + " Year " + year + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to generate attendance records for a specific student for the entire year
+    private static void generateStudentAttendanceForYear(Connection conn, String tableName, String studentUuid, String studentName, int year) {
+        try {
+            // Generate school calendar (excluding national holidays and weekends)
+            java.util.List<java.time.LocalDate> schoolDays = generateSchoolCalendar(year);
+            
+            // Determine attendance percentage for this student (20% to 100%)
+            double attendancePercentage = 0.20 + (Math.random() * 0.80); // 20% to 100%
+            int totalDaysToAttend = (int) (schoolDays.size() * attendancePercentage);
+            
+            // Randomly select which days the student will be present
+            java.util.Collections.shuffle(schoolDays);
+            java.util.List<java.time.LocalDate> presentDays = schoolDays.subList(0, totalDaysToAttend);
+            java.util.List<java.time.LocalDate> absentDays = schoolDays.subList(totalDaysToAttend, schoolDays.size());
+            
+            String insertSQL = String.format("""
+                INSERT INTO %s (student_uuid, attendance_date, status, arrival_time, departure_time, remarks)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (student_uuid, attendance_date) DO NOTHING
+                """, tableName);
+            
+            try (PreparedStatement pstmt = conn.prepareStatement(insertSQL)) {
+                // Insert present days
+                for (java.time.LocalDate date : presentDays) {
+                    pstmt.setObject(1, java.util.UUID.fromString(studentUuid));
+                    pstmt.setDate(2, java.sql.Date.valueOf(date));
+                    
+                    // Determine status for present days
+                    double statusRandom = Math.random();
+                    String status;
+                    java.time.LocalTime arrivalTime = null;
+                    java.time.LocalTime departureTime = null;
+                    String remarks = null;
+                    
+                    if (statusRandom < 0.85) { // 85% regular present
+                        status = "Present";
+                        arrivalTime = generateArrivalTime(false); // Regular arrival
+                        departureTime = generateDepartureTime();
+                    } else if (statusRandom < 0.95) { // 10% late
+                        status = "Late";
+                        arrivalTime = generateArrivalTime(true); // Late arrival
+                        departureTime = generateDepartureTime();
+                        remarks = "Late arrival";
+                    } else { // 5% excused
+                        status = "Excused";
+                        arrivalTime = generateArrivalTime(false);
+                        departureTime = generateDepartureTime();
+                        remarks = generateExcusedRemark();
+                    }
+                    
+                    pstmt.setString(3, status);
+                    pstmt.setTime(4, arrivalTime != null ? java.sql.Time.valueOf(arrivalTime) : null);
+                    pstmt.setTime(5, departureTime != null ? java.sql.Time.valueOf(departureTime) : null);
+                    pstmt.setString(6, remarks);
+                    
+                    pstmt.addBatch();
+                }
+                
+                // Insert absent days
+                for (java.time.LocalDate date : absentDays) {
+                    pstmt.setObject(1, java.util.UUID.fromString(studentUuid));
+                    pstmt.setDate(2, java.sql.Date.valueOf(date));
+                    pstmt.setString(3, "Absent");
+                    pstmt.setTime(4, null);
+                    pstmt.setTime(5, null);
+                    pstmt.setString(6, generateAbsentRemark());
+                    
+                    pstmt.addBatch();
+                }
+                
+                // Execute batch insert
+                pstmt.executeBatch();
+                
+                // Log progress for large datasets
+                if (Math.random() < 0.01) { // Log 1% of students for progress tracking
+                    System.out.println("      Generated attendance for " + studentName + " (" + presentDays.size() + " present, " + absentDays.size() + " absent)");
+                }
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error generating attendance for student " + studentName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to generate school calendar (excluding weekends and national holidays)
+    private static java.util.List<java.time.LocalDate> generateSchoolCalendar(int year) {
+        java.util.List<java.time.LocalDate> schoolDays = new java.util.ArrayList<>();
+        
+        // Define school session: April to March (Indian academic year)
+        java.time.LocalDate startDate = java.time.LocalDate.of(year, 4, 1);
+        java.time.LocalDate endDate = java.time.LocalDate.of(year + 1, 3, 31);
+        
+        // Add summer break (May 15 - June 15)
+        java.time.LocalDate summerBreakStart = java.time.LocalDate.of(year, 5, 15);
+        java.time.LocalDate summerBreakEnd = java.time.LocalDate.of(year, 6, 15);
+        
+        // Add winter break (December 25 - January 5)
+        java.time.LocalDate winterBreakStart = java.time.LocalDate.of(year, 12, 25);
+        java.time.LocalDate winterBreakEnd = java.time.LocalDate.of(year + 1, 1, 5);
+        
+        // Common Indian national holidays
+        java.util.Set<java.time.LocalDate> holidays = java.util.Set.of(
+            java.time.LocalDate.of(year, 1, 26),    // Republic Day
+            java.time.LocalDate.of(year, 8, 15),    // Independence Day
+            java.time.LocalDate.of(year, 10, 2),    // Gandhi Jayanti
+            java.time.LocalDate.of(year, 10, 24),   // Dussehra (approximate)
+            java.time.LocalDate.of(year, 11, 12),   // Diwali (approximate)
+            java.time.LocalDate.of(year + 1, 3, 8)  // Holi (approximate)
+        );
+        
+        java.time.LocalDate currentDate = startDate;
+        while (!currentDate.isAfter(endDate)) {
+            // Skip weekends
+            if (currentDate.getDayOfWeek() != java.time.DayOfWeek.SATURDAY && 
+                currentDate.getDayOfWeek() != java.time.DayOfWeek.SUNDAY) {
+                
+                // Skip holidays
+                if (!holidays.contains(currentDate)) {
+                    // Skip summer break
+                    if (currentDate.isBefore(summerBreakStart) || currentDate.isAfter(summerBreakEnd)) {
+                        // Skip winter break
+                        if (currentDate.isBefore(winterBreakStart) || currentDate.isAfter(winterBreakEnd)) {
+                            schoolDays.add(currentDate);
+                        }
+                    }
+                }
+            }
+            currentDate = currentDate.plusDays(1);
+        }
+        
+        return schoolDays;
+    }
+    
+    // Method to generate arrival time
+    private static java.time.LocalTime generateArrivalTime(boolean isLate) {
+        if (isLate) {
+            // Late arrival: 8:30 AM to 10:00 AM
+            int hour = 8 + (Math.random() < 0.7 ? 0 : 1); // 70% chance 8:xx, 30% chance 9:xx
+            int minute = 30 + (int) (Math.random() * 90); // 30-119 minutes past hour
+            if (minute >= 60) {
+                hour++;
+                minute -= 60;
+            }
+            return java.time.LocalTime.of(Math.min(hour, 10), Math.min(minute, 59));
+        } else {
+            // Regular arrival: 7:30 AM to 8:15 AM
+            int minute = 30 + (int) (Math.random() * 45); // 30-74 minutes past 7
+            if (minute >= 60) {
+                return java.time.LocalTime.of(8, minute - 60);
+            } else {
+                return java.time.LocalTime.of(7, minute);
+            }
+        }
+    }
+    
+    // Method to generate departure time
+    private static java.time.LocalTime generateDepartureTime() {
+        // School ends around 3:00 PM to 4:00 PM
+        int hour = 15 + (int) (Math.random() * 2); // 3 PM or 4 PM
+        int minute = (int) (Math.random() * 60);   // 0-59 minutes
+        return java.time.LocalTime.of(hour, minute);
+    }
+    
+    // Method to generate excused remarks
+    private static String generateExcusedRemark() {
+        String[] excusedRemarks = {
+            "Medical appointment", "Family emergency", "School event participation",
+            "Educational trip", "Sports competition", "Cultural program",
+            "Parent-teacher meeting", "Health checkup", "Exam exemption"
+        };
+        return excusedRemarks[(int) (Math.random() * excusedRemarks.length)];
+    }
+    
+    // Method to generate absent remarks
+    private static String generateAbsentRemark() {
+        String[] absentRemarks = {
+            "Illness", "Fever", "Family function", "Personal reasons",
+            "Medical treatment", "Out of station", "Weather conditions",
+            "Transportation issues", "Unexcused absence", null
+        };
+        String remark = absentRemarks[(int) (Math.random() * absentRemarks.length)];
+        return remark; // null is acceptable for some absent days
+    }
+    
+    // Method to generate homework records for students (interactive)
+    private static void generateHomeworkRecords(java.util.Scanner scanner, java.util.List<String> schoolNames, int numClasses) {
+        try {
+            System.out.println("\n=== HOMEWORK RECORDS GENERATION ===");
+            System.out.print("Do you want to generate homework records? (y/n): ");
+            String choice = scanner.nextLine().trim().toLowerCase();
+            
+            if (!choice.equals("y") && !choice.equals("yes")) {
+                System.out.println("Homework records generation skipped.");
+                return;
+            }
+            
+            generateAutomaticHomeworkRecords(numClasses, schoolNames);
+            
+        } catch (java.util.NoSuchElementException e) {
+            System.out.println("\n=== INPUT ERROR ===");
+            System.out.println("No more input available for homework generation.");
+            System.out.println("Homework generation skipped.");
+        } catch (Exception e) {
+            System.out.println("\n=== ERROR IN HOMEWORK GENERATION ===");
+            System.out.println("Error: " + e.getMessage());
+            System.out.println("Homework generation skipped.");
+        }
+    }
+    
+    // Method to generate homework records automatically
+    private static void generateAutomaticHomeworkRecords(int numClasses, java.util.List<String> schoolNames) {
+        System.out.println("Automatically generating homework records for all " + numClasses + " classes...");
+        
+        try {
+            // Generate for all classes from 1 to numClasses
+            java.util.List<Integer> classes = new java.util.ArrayList<>();
+            for (int i = 1; i <= numClasses; i++) {
+                classes.add(i);
+            }
+            
+            generateHomeworkData(classes, schoolNames);
+            
+        } catch (Exception e) {
+            System.out.println("\n=== ERROR IN AUTOMATIC HOMEWORK GENERATION ===");
+            System.out.println("Error: " + e.getMessage());
+            System.out.println("Homework generation skipped.");
+        }
+    }
+    
+    // Method to generate homework data for selected classes and schools
+    private static void generateHomeworkData(java.util.List<Integer> classes, java.util.List<String> schoolNames) {
+        int currentYear = 2025;
+        
+        System.out.println("=== HOMEWORK GENERATION CONFIGURATION ===");
+        System.out.println("Logic: ALL students will have homework records for years they were in school");
+        System.out.println("       For example, students currently in Class 5 will have homework for:");
+        System.out.println("       2021 (when in Class 1), 2022 (Class 2), 2023 (Class 3),");
+        System.out.println("       2024 (Class 4), 2025 (Class 5)");
+        System.out.println("Homework frequency: 2-4 assignments per week per subject");
+        System.out.println("Quality scores: 60-100 for submitted assignments");
+        System.out.println("Submission rates: 70-98% per student");
+        System.out.println("===============================================\n");
+        
+        // Process each school
+        for (String schoolName : schoolNames) {
+            System.out.println("Processing homework records for: " + schoolName);
+            
+            // Determine all years that need homework tables
+            int maxClass = classes.stream().mapToInt(Integer::intValue).max().orElse(12);
+            int earliestYear = currentYear - maxClass + 1;
+            
+            System.out.println("  Years to generate: " + earliestYear + " to " + currentYear);
+            
+            // Create homework tables for all needed years
+            for (int year = earliestYear; year <= currentYear; year++) {
+                createHomeworkTable(schoolName, year);
+            }
+            
+            // Generate homework data for each year (this will process ALL students for each year)
+            for (int year = earliestYear; year <= currentYear; year++) {
+                System.out.println("  Generating homework for year " + year + "...");
+                generateHomeworkRecordsForYear(schoolName, year);
+            }
+        }
+        
+        System.out.println("\n=== HOMEWORK RECORDS GENERATION COMPLETE ===");
+        System.out.println("Homework tables created with format: {sanitized_school_name}_homework_{year}");
+        System.out.println("Columns: hw_id, student_uuid, subject, assigned_date, due_date, submitted_date, quality_score, status, created_at");
+        System.out.println("Logic implemented: ALL students have homework records for years they would have been in school");
+        System.out.println("Assignment frequency: 2-4 assignments per week per subject during school days");
+        System.out.println("Data volume: Each student will have ~150-300 homework records per school year");
+    }
+    
+    // Method to create homework table for a specific year
+    private static void createHomeworkTable(String schoolName, int year) {
+        String sanitizedSchoolName = schoolName.toLowerCase()
+                .replaceAll("[^a-zA-Z0-9]", "_")
+                .replaceAll("_{2,}", "_")
+                .replaceAll("^_|_$", "");
+        String tableName = sanitizedSchoolName + "_homework_" + year;
+        
+        try (Connection conn = getConnection()) {
+            String createTableSQL = String.format("""
+                CREATE TABLE IF NOT EXISTS %s (
+                    hw_id SERIAL PRIMARY KEY,
+                    student_uuid UUID NOT NULL,
+                    subject VARCHAR(50) NOT NULL,
+                    assigned_date DATE NOT NULL,
+                    due_date DATE NOT NULL,
+                    submitted_date DATE,
+                    quality_score INTEGER CHECK (quality_score BETWEEN 0 AND 100),
+                    status VARCHAR(20) NOT NULL CHECK (status IN ('Assigned', 'Submitted', 'Late', 'Missing')),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(student_uuid, subject, assigned_date)
+                )
+                """, tableName);
+            
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute(createTableSQL);
+                System.out.println("    Homework table created: " + tableName);
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error creating homework table " + tableName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to generate homework records for students in a specific year
+    private static void generateHomeworkRecordsForYear(String schoolName, int year) {
+        String sanitizedSchoolName = schoolName.toLowerCase()
+                .replaceAll("[^a-zA-Z0-9]", "_")
+                .replaceAll("_{2,}", "_")
+                .replaceAll("^_|_$", "");
+        String homeworkTableName = sanitizedSchoolName + "_homework_" + year;
+        String studentTableName = getStudentTableName(schoolName);
+        
+        try {
+            int currentYear = 2025;
+            java.util.List<String[]> studentsToProcess = new java.util.ArrayList<>();
+            
+            // First, get the list of students to process
+            try (Connection conn = getConnection();
+                 PreparedStatement selectStmt = conn.prepareStatement("SELECT student_uuid, full_name, class_name FROM " + studentTableName);
+                 ResultSet rs = selectStmt.executeQuery()) {
+                
+                while (rs.next()) {
+                    String studentUuid = rs.getString("student_uuid");
+                    String studentName = rs.getString("full_name");
+                    String className = rs.getString("class_name");
+                    
+                    // Extract class number from "Class X" format
+                    int currentClass = Integer.parseInt(className.replace("Class ", ""));
+                    
+                    // Calculate what class this student was in during the homework year
+                    int studentClassDuringYear = currentClass - (currentYear - year);
+                    
+                    // Only include students who would have been in school (Class 1 or higher) during that year
+                    if (studentClassDuringYear >= 1) {
+                        studentsToProcess.add(new String[]{studentUuid, studentName, String.valueOf(studentClassDuringYear)});
+                    }
+                }
+            }
+            
+            if (studentsToProcess.isEmpty()) {
+                System.out.println("    No students were in school during " + year + " for " + schoolName);
+                return;
+            }
+            
+            System.out.println("    Processing " + studentsToProcess.size() + " students for homework in " + year);
+            
+            // Process students in batches to avoid connection leaks
+            int batchSize = 50; // Process 50 students per connection
+            for (int i = 0; i < studentsToProcess.size(); i += batchSize) {
+                int endIndex = Math.min(i + batchSize, studentsToProcess.size());
+                java.util.List<String[]> batch = studentsToProcess.subList(i, endIndex);
+                
+                // Use a new connection for each batch
+                try (Connection conn = getConnection()) {
+                    for (String[] studentData : batch) {
+                        String studentUuid = studentData[0];
+                        String studentName = studentData[1];
+                        int studentClass = Integer.parseInt(studentData[2]);
+                        
+                        generateStudentHomeworkForYear(conn, homeworkTableName, studentUuid, studentName, studentClass, year);
+                    }
+                    
+                    // Report progress
+                    System.out.println("      Processed " + Math.min(endIndex, studentsToProcess.size()) + "/" + studentsToProcess.size() + " students");
+                }
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error generating homework records for year " + year + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to generate homework records for a specific student for the entire year
+    private static void generateStudentHomeworkForYear(Connection conn, String tableName, String studentUuid, String studentName, int studentClass, int year) {
+        try {
+            // Get subjects based on class
+            String[] subjects = getSubjectsForClass(studentClass);
+            
+            // Generate school calendar for the year (excluding weekends and holidays)
+            java.util.List<java.time.LocalDate> schoolDays = generateSchoolCalendar(year);
+            
+            // Student's submission rate (70% to 98%)
+            double submissionRate = 0.70 + (Math.random() * 0.28);
+            
+            // Generate homework assignments
+            String insertSQL = "INSERT INTO " + tableName + 
+                " (student_uuid, subject, assigned_date, due_date, submitted_date, quality_score, status) VALUES (?, ?, ?, ?, ?, ?, ?)";
+            
+            try (PreparedStatement pstmt = conn.prepareStatement(insertSQL)) {
+                int assignmentCount = 0;
+                
+                // For each subject, generate assignments throughout the year
+                for (String subject : subjects) {
+                    // 2-4 assignments per week per subject
+                    int assignmentsPerWeek = 2 + (int) (Math.random() * 3);
+                    int daysPerAssignment = 7 / assignmentsPerWeek;
+                    
+                    for (int i = 0; i < schoolDays.size(); i += daysPerAssignment) {
+                        if (i >= schoolDays.size()) break;
+                        
+                        java.time.LocalDate assignedDate = schoolDays.get(i);
+                        
+                        // Due date is typically 2-7 days after assignment
+                        int daysToComplete = 2 + (int) (Math.random() * 6);
+                        java.time.LocalDate dueDate = assignedDate.plusDays(daysToComplete);
+                        
+                        // Determine if student submitted this assignment
+                        boolean submitted = Math.random() < submissionRate;
+                        
+                        java.time.LocalDate submittedDate = null;
+                        Integer qualityScore = null;
+                        String status = "Assigned";
+                        
+                        if (submitted) {
+                            // Student submitted - determine when and quality
+                            if (Math.random() < 0.85) {
+                                // On time submission (85% of submitted assignments)
+                                int daysEarly = (int) (Math.random() * (daysToComplete - 1));
+                                submittedDate = assignedDate.plusDays(daysToComplete - daysEarly);
+                                status = "Submitted";
+                            } else {
+                                // Late submission (15% of submitted assignments)
+                                int daysLate = 1 + (int) (Math.random() * 3);
+                                submittedDate = dueDate.plusDays(daysLate);
+                                status = "Late";
+                            }
+                            
+                            // Quality score for submitted assignments (60-100)
+                            qualityScore = 60 + (int) (Math.random() * 41);
+                            
+                        } else {
+                            // Not submitted
+                            status = "Missing";
+                        }
+                        
+                        // Insert the homework record
+                        pstmt.setObject(1, java.util.UUID.fromString(studentUuid));
+                        pstmt.setString(2, subject);
+                        pstmt.setDate(3, java.sql.Date.valueOf(assignedDate));
+                        pstmt.setDate(4, java.sql.Date.valueOf(dueDate));
+                        pstmt.setDate(5, submittedDate != null ? java.sql.Date.valueOf(submittedDate) : null);
+                        pstmt.setObject(6, qualityScore);
+                        pstmt.setString(7, status);
+                        
+                        pstmt.addBatch();
+                        assignmentCount++;
+                        
+                        // Execute batch every 100 records
+                        if (assignmentCount % 100 == 0) {
+                            pstmt.executeBatch();
+                        }
+                    }
+                }
+                
+                // Execute remaining batch
+                pstmt.executeBatch();
+                
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error generating homework for student " + studentName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to get subjects based on class level
+    private static String[] getSubjectsForClass(int classLevel) {
+        if (classLevel >= 1 && classLevel <= 5) {
+            // Primary classes (1-5)
+            return new String[]{"Mathematics", "English", "Hindi", "Environmental Studies", "Art & Craft"};
+        } else if (classLevel >= 6 && classLevel <= 8) {
+            // Middle classes (6-8)
+            return new String[]{"Mathematics", "English", "Hindi", "Science", "Social Studies", "Computer Science"};
+        } else if (classLevel >= 9 && classLevel <= 10) {
+            // Secondary classes (9-10)
+            return new String[]{"Mathematics", "English", "Hindi", "Science", "Social Studies", "Computer Science", "Physical Education"};
+        } else if (classLevel == 11 || classLevel == 12) {
+            // Higher secondary - return common subjects (stream-specific logic can be added later)
+            return new String[]{"Mathematics", "English", "Physics", "Chemistry", "Biology", "Computer Science"};
+        } else {
+            // Default subjects
+            return new String[]{"Mathematics", "English", "Science"};
+        }
+    }
+    
+    // Method to generate project records for students (interactive)
+    private static void generateProjectRecords(java.util.Scanner scanner, java.util.List<String> schoolNames, int numClasses) {
+        try {
+            System.out.println("\n=== PROJECT RECORDS GENERATION ===");
+            System.out.print("Do you want to generate project records? (y/n): ");
+            String choice = scanner.nextLine().trim().toLowerCase();
+            
+            if (!choice.equals("y") && !choice.equals("yes")) {
+                System.out.println("Project records generation skipped.");
+                return;
+            }
+            
+            generateAutomaticProjectRecords(numClasses, schoolNames);
+            
+        } catch (java.util.NoSuchElementException e) {
+            System.out.println("\n=== INPUT ERROR ===");
+            System.out.println("No more input available for project generation.");
+            System.out.println("Project generation skipped.");
+        } catch (Exception e) {
+            System.out.println("\n=== ERROR IN PROJECT GENERATION ===");
+            System.out.println("Error: " + e.getMessage());
+            System.out.println("Project generation skipped.");
+        }
+    }
+    
+    // Method to generate project records automatically
+    private static void generateAutomaticProjectRecords(int numClasses, java.util.List<String> schoolNames) {
+        System.out.println("Automatically generating project records for all " + numClasses + " classes...");
+        
+        try {
+            // Generate for all classes from 1 to numClasses
+            java.util.List<Integer> classes = new java.util.ArrayList<>();
+            for (int i = 1; i <= numClasses; i++) {
+                classes.add(i);
+            }
+            
+            generateProjectData(classes, schoolNames);
+            
+        } catch (Exception e) {
+            System.out.println("\n=== ERROR IN AUTOMATIC PROJECT GENERATION ===");
+            System.out.println("Error: " + e.getMessage());
+            System.out.println("Project generation skipped.");
+        }
+    }
+    
+    // Method to generate project data for selected classes and schools
+    private static void generateProjectData(java.util.List<Integer> classes, java.util.List<String> schoolNames) {
+        int currentYear = 2025;
+        
+        System.out.println("=== PROJECT GENERATION CONFIGURATION ===");
+        System.out.println("Logic: ALL students will have project records for years they were in school");
+        System.out.println("       For example, students currently in Class 5 will have projects for:");
+        System.out.println("       2021 (when in Class 1), 2022 (Class 2), 2023 (Class 3),");
+        System.out.println("       2024 (Class 4), 2025 (Class 5)");
+        System.out.println("Project frequency: 1-2 major projects per term per subject");
+        System.out.println("Grades: A+ to F for submitted projects");
+        System.out.println("Submission rates: 75-95% per student");
+        System.out.println("===============================================\n");
+        
+        // Process each school
+        for (String schoolName : schoolNames) {
+            System.out.println("Processing project records for: " + schoolName);
+            
+            // Determine all years that need project tables
+            int maxClass = classes.stream().mapToInt(Integer::intValue).max().orElse(12);
+            int earliestYear = currentYear - maxClass + 1;
+            
+            System.out.println("  Years to generate: " + earliestYear + " to " + currentYear);
+            
+            // Create project tables for all needed years
+            for (int year = earliestYear; year <= currentYear; year++) {
+                createProjectTable(schoolName, year);
+            }
+            
+            // Generate project data for each year (this will process ALL students for each year)
+            for (int year = earliestYear; year <= currentYear; year++) {
+                System.out.println("  Generating projects for year " + year + "...");
+                generateProjectRecordsForYear(schoolName, year);
+            }
+        }
+        
+        System.out.println("\n=== PROJECT RECORDS GENERATION COMPLETE ===");
+        System.out.println("Project tables created with format: {sanitized_school_name}_projects_{year}");
+        System.out.println("Columns: project_id, student_uuid, title, subject, assigned_date, due_date, submitted_date, grade, status, remarks, created_at");
+        System.out.println("Logic implemented: ALL students have project records for years they would have been in school");
+        System.out.println("Project frequency: 1-2 major projects per term per subject during school year");
+        System.out.println("Data volume: Each student will have ~10-25 project records per school year");
+    }
+    
+    // Method to create project table for a specific year
+    private static void createProjectTable(String schoolName, int year) {
+        String sanitizedSchoolName = schoolName.toLowerCase()
+                .replaceAll("[^a-zA-Z0-9]", "_")
+                .replaceAll("_{2,}", "_")
+                .replaceAll("^_|_$", "");
+        String tableName = sanitizedSchoolName + "_projects_" + year;
+        
+        try (Connection conn = getConnection()) {
+            String createTableSQL = String.format("""
+                CREATE TABLE IF NOT EXISTS %s (
+                    project_id SERIAL PRIMARY KEY,
+                    student_uuid UUID NOT NULL,
+                    title VARCHAR(200) NOT NULL,
+                    subject VARCHAR(50) NOT NULL,
+                    assigned_date DATE NOT NULL,
+                    due_date DATE NOT NULL,
+                    submitted_date DATE,
+                    grade VARCHAR(5) CHECK (grade IN ('A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'F', 'I')),
+                    status VARCHAR(20) NOT NULL CHECK (status IN ('Assigned', 'In Progress', 'Submitted', 'Late', 'Missing', 'Graded')),
+                    remarks TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(student_uuid, title, assigned_date)
+                )
+                """, tableName);
+            
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute(createTableSQL);
+                System.out.println("    Project table created: " + tableName);
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error creating project table " + tableName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to generate project records for students in a specific year
+    private static void generateProjectRecordsForYear(String schoolName, int year) {
+        String sanitizedSchoolName = schoolName.toLowerCase()
+                .replaceAll("[^a-zA-Z0-9]", "_")
+                .replaceAll("_{2,}", "_")
+                .replaceAll("^_|_$", "");
+        String projectTableName = sanitizedSchoolName + "_projects_" + year;
+        String studentTableName = getStudentTableName(schoolName);
+        
+        try {
+            int currentYear = 2025;
+            java.util.List<String[]> studentsToProcess = new java.util.ArrayList<>();
+            
+            // First, get the list of students to process
+            try (Connection conn = getConnection();
+                 PreparedStatement selectStmt = conn.prepareStatement("SELECT student_uuid, full_name, class_name FROM " + studentTableName);
+                 ResultSet rs = selectStmt.executeQuery()) {
+                
+                while (rs.next()) {
+                    String studentUuid = rs.getString("student_uuid");
+                    String studentName = rs.getString("full_name");
+                    String className = rs.getString("class_name");
+                    
+                    // Extract class number from "Class X" format
+                    int currentClass = Integer.parseInt(className.replace("Class ", ""));
+                    
+                    // Calculate what class this student was in during the project year
+                    int studentClassDuringYear = currentClass - (currentYear - year);
+                    
+                    // Only include students who would have been in school (Class 1 or higher) during that year
+                    if (studentClassDuringYear >= 1) {
+                        studentsToProcess.add(new String[]{studentUuid, studentName, String.valueOf(studentClassDuringYear)});
+                    }
+                }
+            }
+            
+            if (studentsToProcess.isEmpty()) {
+                System.out.println("    No students were in school during " + year + " for " + schoolName);
+                return;
+            }
+            
+            System.out.println("    Processing " + studentsToProcess.size() + " students for projects in " + year);
+            
+            // Process students in batches to avoid connection leaks
+            int batchSize = 75; // Process 75 students per connection (projects have fewer records per student)
+            for (int i = 0; i < studentsToProcess.size(); i += batchSize) {
+                int endIndex = Math.min(i + batchSize, studentsToProcess.size());
+                java.util.List<String[]> batch = studentsToProcess.subList(i, endIndex);
+                
+                // Use a new connection for each batch
+                try (Connection conn = getConnection()) {
+                    for (String[] studentData : batch) {
+                        String studentUuid = studentData[0];
+                        String studentName = studentData[1];
+                        int studentClass = Integer.parseInt(studentData[2]);
+                        
+                        generateStudentProjectsForYear(conn, projectTableName, studentUuid, studentName, studentClass, year);
+                    }
+                    
+                    // Report progress
+                    System.out.println("      Processed " + Math.min(endIndex, studentsToProcess.size()) + "/" + studentsToProcess.size() + " students");
+                }
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error generating project records for year " + year + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to generate project records for a specific student for the entire year
+    private static void generateStudentProjectsForYear(Connection conn, String tableName, String studentUuid, String studentName, int studentClass, int year) {
+        try {
+            // Get subjects based on class
+            String[] subjects = getSubjectsForClass(studentClass);
+            
+            // Student's submission rate (75% to 95%)
+            double submissionRate = 0.75 + (Math.random() * 0.20);
+            
+            // Generate project assignments
+            String insertSQL = "INSERT INTO " + tableName + 
+                " (student_uuid, title, subject, assigned_date, due_date, submitted_date, grade, status, remarks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            
+            try (PreparedStatement pstmt = conn.prepareStatement(insertSQL)) {
+                int projectCount = 0;
+                
+                // For each subject, generate 1-2 projects per term (assuming 2-3 terms per year)
+                for (String subject : subjects) {
+                    int projectsPerYear = 2 + (int) (Math.random() * 4); // 2-5 projects per subject per year
+                    
+                    for (int projNum = 1; projNum <= projectsPerYear; projNum++) {
+                        // Generate project title
+                        String projectTitle = generateProjectTitle(subject, studentClass);
+                        
+                        // Assign projects throughout the year
+                        int dayOfYear = (int) (Math.random() * 300) + 1; // Random day in school year
+                        java.time.LocalDate assignedDate = java.time.LocalDate.of(year, 1, 1).plusDays(dayOfYear);
+                        
+                        // Due date is typically 2-4 weeks after assignment
+                        int weeksToComplete = 2 + (int) (Math.random() * 3);
+                        java.time.LocalDate dueDate = assignedDate.plusWeeks(weeksToComplete);
+                        
+                        // Determine if student submitted this project
+                        boolean submitted = Math.random() < submissionRate;
+                        
+                        java.time.LocalDate submittedDate = null;
+                        String grade = null;
+                        String status = "Assigned";
+                        String remarks = null;
+                        
+                        if (submitted) {
+                            // Student submitted - determine when and quality
+                            if (Math.random() < 0.80) {
+                                // On time submission (80% of submitted projects)
+                                int daysEarly = (int) (Math.random() * 7); // 0-7 days early
+                                submittedDate = dueDate.minusDays(daysEarly);
+                                status = "Graded";
+                            } else {
+                                // Late submission (20% of submitted projects)
+                                int daysLate = 1 + (int) (Math.random() * 14); // 1-14 days late
+                                submittedDate = dueDate.plusDays(daysLate);
+                                status = "Graded";
+                                remarks = "Late submission";
+                            }
+                            
+                            // Generate grade for submitted projects
+                            grade = generateProjectGrade();
+                            
+                            // Generate remarks based on grade
+                            if (remarks == null) {
+                                remarks = generateProjectRemarks(grade);
+                            }
+                            
+                        } else {
+                            // Not submitted
+                            status = "Missing";
+                            grade = "F";
+                            remarks = "Project not submitted";
+                        }
+                        
+                        // Insert the project record
+                        pstmt.setObject(1, java.util.UUID.fromString(studentUuid));
+                        pstmt.setString(2, projectTitle);
+                        pstmt.setString(3, subject);
+                        pstmt.setDate(4, java.sql.Date.valueOf(assignedDate));
+                        pstmt.setDate(5, java.sql.Date.valueOf(dueDate));
+                        pstmt.setDate(6, submittedDate != null ? java.sql.Date.valueOf(submittedDate) : null);
+                        pstmt.setString(7, grade);
+                        pstmt.setString(8, status);
+                        pstmt.setString(9, remarks);
+                        
+                        pstmt.addBatch();
+                        projectCount++;
+                        
+                        // Execute batch every 50 records
+                        if (projectCount % 50 == 0) {
+                            pstmt.executeBatch();
+                        }
+                    }
+                }
+                
+                // Execute remaining batch
+                pstmt.executeBatch();
+                
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Error generating projects for student " + studentName + ": " + e.getMessage());
+        }
+    }
+    
+    // Method to generate project titles based on subject and class
+    private static String generateProjectTitle(String subject, int classLevel) {
+        java.util.Map<String, String[]> projectTitles = new java.util.HashMap<>();
+        
+        // Mathematics projects
+        projectTitles.put("Mathematics", new String[]{
+            "Geometry in Architecture", "Statistics Survey Project", "Probability Experiments",
+            "Mathematical Patterns in Nature", "Budgeting and Finance", "Measurement Project",
+            "Number System Investigation", "Graph Theory Applications", "Trigonometry in Real Life",
+            "Area and Volume Calculations", "Mathematical Art Project", "Data Analysis Report"
+        });
+        
+        // Science projects
+        projectTitles.put("Science", new String[]{
+            "Plant Growth Experiment", "Solar System Model", "Water Cycle Investigation",
+            "Chemical Reactions Lab", "Weather Monitoring Project", "Ecosystem Study",
+            "Simple Machines Demo", "Light and Shadow Experiments", "Magnetism Investigation",
+            "States of Matter Project", "Human Body Systems", "Environmental Conservation"
+        });
+        
+        // English projects
+        projectTitles.put("English", new String[]{
+            "Creative Writing Portfolio", "Poetry Analysis Project", "Character Study Report",
+            "Book Review Assignment", "Drama Performance", "Newspaper Creation",
+            "Interview Project", "Story Illustration", "Grammar Games", "Vocabulary Building",
+            "Reading Comprehension Study", "Literature Circle Discussion"
+        });
+        
+        // Social Studies projects
+        projectTitles.put("Social Studies", new String[]{
+            "Historical Timeline Project", "Cultural Heritage Study", "Geography Mapping",
+            "Government Systems Research", "Ancient Civilizations", "Community Helpers Study",
+            "Festival Celebration Project", "Freedom Fighters Biography", "Map Making Exercise",
+            "Constitution Study", "Current Events Analysis", "Local History Investigation"
+        });
+        
+        // Add more subjects
+        projectTitles.put("Hindi", new String[]{
+            "Poetry Writing", "Story Presentation", "Grammar Project", "Author Study",
+            "Language Development", "Cultural Study", "Literature Review", "Drama Performance"
+        });
+        
+        projectTitles.put("Computer Science", new String[]{
+            "Programming Fundamentals", "Website Creation", "Database Design", "Algorithm Analysis",
+            "Technology Timeline", "Computer Graphics Project", "Digital Presentation", "Coding Challenge"
+        });
+        
+        projectTitles.put("Environmental Studies", new String[]{
+            "Pollution Awareness Campaign", "Recycling Project", "Garden Maintenance", "Animal Habitat Study",
+            "Climate Change Research", "Water Conservation", "Renewable Energy Project", "Waste Management"
+        });
+        
+        projectTitles.put("Art & Craft", new String[]{
+            "Cultural Art Forms", "Handmade Crafts", "Painting Exhibition", "Sculpture Project",
+            "Traditional Art Study", "Creative Expression", "Art History Timeline", "Mixed Media Creation"
+        });
+        
+        projectTitles.put("Physical Education", new String[]{
+            "Sports Statistics Analysis", "Fitness Plan Development", "Game Rules Study", "Health Awareness Campaign",
+            "Exercise Routine Creation", "Sports History Research", "Nutrition Project", "Team Building Activities"
+        });
+        
+        // Default subjects
+        projectTitles.put("Physics", new String[]{
+            "Motion and Forces", "Electricity and Magnetism", "Wave Properties", "Light Optics",
+            "Thermodynamics Study", "Atomic Structure", "Energy Conservation", "Simple Machines"
+        });
+        
+        projectTitles.put("Chemistry", new String[]{
+            "Chemical Bonding", "Periodic Table Study", "Reaction Mechanisms", "Organic Compounds",
+            "pH and Acids", "Crystallization Project", "Chemical Analysis", "Environmental Chemistry"
+        });
+        
+        projectTitles.put("Biology", new String[]{
+            "Cell Structure Study", "Genetics Experiment", "Photosynthesis Investigation", "Human Anatomy",
+            "Ecosystem Analysis", "Biodiversity Project", "Evolution Timeline", "Microbiology Study"
+        });
+        
+        String[] titles = projectTitles.getOrDefault(subject, new String[]{"Research Project", "Investigation Study", "Analysis Report"});
+        return titles[(int) (Math.random() * titles.length)];
+    }
+    
+    // Method to generate project grades
+    private static String generateProjectGrade() {
+        String[] grades = {"A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "F"};
+        double[] probabilities = {0.10, 0.15, 0.15, 0.20, 0.15, 0.10, 0.08, 0.05, 0.02, 0.00, 0.00, 0.00}; // Very few F grades for projects
+        
+        double random = Math.random();
+        double cumulative = 0;
+        for (int i = 0; i < probabilities.length; i++) {
+            cumulative += probabilities[i];
+            if (random <= cumulative) {
+                return grades[i];
+            }
+        }
+        return "B"; // Default
+    }
+    
+    // Method to generate project remarks based on grade
+    private static String generateProjectRemarks(String grade) {
+        java.util.Map<String, String[]> gradeRemarks = new java.util.HashMap<>();
+        
+        gradeRemarks.put("A+", new String[]{
+            "Outstanding work!", "Exceptional creativity and effort", "Exceeds all expectations",
+            "Excellent research and presentation", "Remarkable attention to detail"
+        });
+        
+        gradeRemarks.put("A", new String[]{
+            "Excellent work", "Great effort and creativity", "Well researched and presented",
+            "Strong understanding demonstrated", "High quality work"
+        });
+        
+        gradeRemarks.put("A-", new String[]{
+            "Very good work", "Good effort shown", "Well organized project",
+            "Good understanding of concepts", "Quality presentation"
+        });
+        
+        gradeRemarks.put("B+", new String[]{
+            "Good work overall", "Satisfactory effort", "Meets most requirements",
+            "Good understanding shown", "Well presented"
+        });
+        
+        gradeRemarks.put("B", new String[]{
+            "Satisfactory work", "Adequate effort", "Meets basic requirements",
+            "Acceptable understanding", "Could use more detail"
+        });
+        
+        gradeRemarks.put("B-", new String[]{
+            "Needs some improvement", "Basic requirements met", "Could be more thorough",
+            "Show more effort next time", "Additional research needed"
+        });
+        
+        gradeRemarks.put("C+", new String[]{
+            "Meets minimum standards", "More effort required", "Incomplete work",
+            "Needs better organization", "Additional work needed"
+        });
+        
+        gradeRemarks.put("C", new String[]{
+            "Below expectations", "Incomplete submission", "Needs significant improvement",
+            "More research required", "Poorly organized"
+        });
+        
+        gradeRemarks.put("F", new String[]{
+            "Not submitted", "Unacceptable work", "Did not meet requirements",
+            "No effort shown", "Please resubmit"
+        });
+        
+        String[] remarks = gradeRemarks.getOrDefault(grade, new String[]{"Work reviewed"});
+        return remarks[(int) (Math.random() * remarks.length)];
     }
 }

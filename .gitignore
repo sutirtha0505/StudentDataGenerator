@@ -1,1 +1,6 @@
 *.class
+Data/
+*.exe
+Makefile
+*.log
+*.log.*
